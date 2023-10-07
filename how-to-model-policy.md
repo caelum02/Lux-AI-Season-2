@@ -48,6 +48,8 @@
 
 따라서 **마스킹은 invalid action에 대한 policy gradient update를 차단**한다.
 
+- [Huang and Ontanon](https://browse.arxiv.org/pdf/2006.14171.pdf)에 따르면, masking을 고려하지 않고 network를 업데이트할 경우 (즉, policy gradient, entropy 등을 naive하게 계산할 경우) PPO 알고리즘 사용한 경우 target policy와 current policy의 KL divergence가 발산하였음. 
+
 #### Update target에 Entropy term이 더해질 경우?
 - $\frac{\partial H(\pi)}{\partial{logit_i}}= -p_i(H(\pi)+\log{p_i})$
 - masking할 경우 $p_i=0$이므로 $\nabla_{logit_i}H(\pi)=0$
