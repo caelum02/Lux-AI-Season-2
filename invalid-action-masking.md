@@ -1,5 +1,6 @@
-https://browse.arxiv.org/pdf/2006.14171.pdf
-https://boring-guy.sh/posts/masking-rl/
+Referenced
+1. https://browse.arxiv.org/pdf/2006.14171.pdf
+2. https://boring-guy.sh/posts/masking-rl/
 
 
 ### logit에 -inf로 masking해 invalid action을 제거하는 접근법
