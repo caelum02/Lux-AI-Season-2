@@ -58,7 +58,8 @@
 
 #### KL divergence 항이 더해질 경우?
 - 현재 모델의 output distribution을 $p$, true distribution을 $q$라고 하자.(ex. teacher model)
-- $KL(q||p)$의 경우, gradient는 $q_i-p_i$이다. invalid action은 p, q에서 둘다 확률이 0이어야 하므로 gradient=0
+- $\frac{\partial KL(q||p)}{\partial logit_i}=q_i-p_i$
+- invalid action은 p, q에서 둘다 확률이 0이어야 하므로 gradient=0
 
 #### Reference 
 1. https://boring-guy.sh/posts/masking-rl/
