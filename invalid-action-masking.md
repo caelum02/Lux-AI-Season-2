@@ -6,7 +6,8 @@ Referenced
 ### logit에 -inf로 masking해 invalid action을 제거하는 접근법
 policy gradient target(REINFORCE)
 
-$$ \nable_\theta J=\mathbb{E}_{\tau \sim P_{\pi_\theta}} \left[ \sum^{T-1}_{t=0} {\nabla_\theta \log{\pi_\theta (A_t|S_t)G_t}}  \right] $$
+$$ \nable_\theta J=E_{\tau \sim P_{\pi_\theta}} \left[ \sum^{T-1}_{t=0} {\nabla_\theta \log{\pi_\theta (A_t|S_t)G_t}}  \right] $$
+
 
 - Policy-gradient 계열에서 위 target은 Off-polciy/On-policy sampling을 통해 계산하는데 invalid action에 대한 $(A_t, S_t)$의 쌍은
 샘플링될 가능성이 없음
