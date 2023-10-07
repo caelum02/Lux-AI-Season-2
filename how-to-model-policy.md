@@ -17,7 +17,7 @@
 #### Questions
 - [ ] masking되기 전의 logit은 어떤 값을 모델링한 것인가?
 - [x] Policy gradient update는 어떻게 바뀔 것인가?
-- [ ] Entropy term, KL divergence term에 대한 update는 어떻게 되는가?
+- [x] Entropy term, KL divergence term에 대한 update는 어떻게 되는가?
 
 #### Policy gradient update는 어떻게 바뀔 것인가?
 - Policy gradient theorem (REINFORCE)
@@ -46,17 +46,19 @@
 - invalid action은 정합한 환경에서 sampling되지 않으므로 $i=j$ 케이스는 발생하지 않음.
 - valid action에 대한 policy update시, $p_{invalid}=0$이므로 invalid action의 logit은 gradient가 0이 된다.
 
-따라서 **마스킹은 invalid action에 대한 update를 차단하는 효과**를 발생시킨다.
+따라서 **마스킹은 invalid action에 대한 policy gradient update를 차단**한다.
 
 #### Update target에 Entropy term이 더해질 경우?
-- $p_i$의 logit $z_i$에 대한 gradient $\frac{\partial H(\pi)}{\partial{z_i}}= -p_i(H(\pi)+\log{p_i})$
-- $-\inf$로 masking할 경우 $p_i=0$이므로 **logit에 대한 gradient = 0**
+- $\frac{\partial H(\pi)}{\partial{logit_i}}= -p_i(H(\pi)+\log{p_i})$
+- masking할 경우 $p_i=0$이므로 $\nabla_{logit_i}H(\pi)=0$
 
-그러므로 참고한 reference https://boring-guy.sh/posts/masking-rl/ 에서는 entropy를 계산할 때 mask에 따라 invalid action의 $plogp$값에 임의로 0을 집어넣는 방식은 합리적이다. 
+따라서 **마스킹은 invalid action에 대한 entropy gradient를 차단**한다.
+
+그러므로 참고한 reference https://boring-guy.sh/posts/masking-rl/ 에서는 entropy를 계산할 때 mask에 따라 invalid action의 $plogp$값에 임의로 0을 집어넣는 방식은 합리적이다. 계산 그래프가 끊어지는 것과 동일한 효과이기 때문이다.
 
 #### KL divergence 항이 더해질 경우?
- 
-
+- 현재 모델의 output distribution을 $p$, true distribution을 $q$라고 하자.(ex. teacher model)
+- $KL(q||p)$의 경우, gradient는 $q_i-p_i$이다. invalid action은 p, q에서 둘다 확률이 0이어야 하므로 gradient=0
 
 #### Reference 
 1. https://boring-guy.sh/posts/masking-rl/
