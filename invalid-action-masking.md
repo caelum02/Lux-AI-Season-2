@@ -16,8 +16,10 @@ policy gradient target(REINFORCE)
 ### Update target에 Entropy term이 더해질 경우?
 $n$개의 카테고리에 대한 logit을 $z_1, ..., z_n$이라 하자. softmax에 의한 확률 $p_i:=\frac{\exp{z_i}}{\sum_i{\exp{z_i}}}$
 ```math
-\partial{p_i}{z_i}= p_i(1-p_i)
-\partial{\sum_i{-p_i \log{p_i}}}{p_i}=-\log{p_i}-1
+\frac{\partial{p_i}}{\partial{z_i}}= p_i(1-p_i), \frac{\partial{p_i}}{\partial{z_j}}= -p_i p_j
+```
+```math
+\frac{\partial{\sum_i{-p_i \log{p_i}}}}{\partial{p_i}}=-\log{p_i}-1
 ```
  
 ### policy는 모든 셀에 대해 계산하되 실제로 유닛이 있는 셀에 대해서만 action을 sampling하는 접근
