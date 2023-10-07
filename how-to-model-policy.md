@@ -17,7 +17,7 @@
 #### Questions
 - [ ] masking되기 전의 logit은 어떤 값을 모델링한 것인가?
 - [x] Policy gradient update는 어떻게 바뀔 것인가?
-- [ ] Entropy term, KL divergence term에 대한 update는 어떻게 처리할 것인가?
+- [ ] Entropy term, KL divergence term에 대한 update는 어떻게 되는가?
 
 #### Policy gradient update는 어떻게 바뀔 것인가?
 - Policy gradient theorem (REINFORCE)
