@@ -54,7 +54,7 @@
 
 따라서 **마스킹은 invalid action에 대한 entropy gradient를 차단**한다.
 
-그러므로 참고한 reference https://boring-guy.sh/posts/masking-rl/ 에서는 entropy를 계산할 때 mask에 따라 invalid action의 $plogp$값에 임의로 0을 집어넣는 방식은 합리적이다. 계산 그래프가 끊어지는 것과 동일한 효과이기 때문이다.
+그러므로 참고한 reference https://boring-guy.sh/posts/masking-rl/ 에서는 entropy를 계산할 때 mask에 따라 invalid action의 $plogp$값에 임의로 0을 집어넣는 방식은 합리적이다. action masking은 forward & backward 모두에서 계산 그래프가 끊어지는 것과 동일하기 때문이다.
 
 #### KL divergence 항이 더해질 경우?
 - 현재 모델의 output distribution을 $p$, true distribution을 $q$라고 하자.(ex. teacher model)
