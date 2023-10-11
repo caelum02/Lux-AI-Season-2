@@ -1,0 +1,32 @@
+{
+  "name": "Python3 & pyenv & PDM",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  // 👇 Features to add to the Dev Container. More info: https://containers.dev/implementors/features.
+  // "features": { "ghcr.io/devcontainers/features/docker-in-docker:2": {} },
+
+  // 👇 Use 'forwardPorts' to make a list of ports inside the container available locally.
+  // "forwardPorts": [],
+  // 👇 Use 'postCreateCommand' to run commands after the container is created.
+  // "postCreateCommand": "",
+  // 👇 Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+		"ms-python.python",
+		"donjayamanne.python-environment-manager",
+		"DavidAnson.vscode-markdownlint",
+		"GitHub.copilot",
+		"ms-azuretools.vscode-docker"
+	]
+      // "settings": {
+      //   "shellformat.path": "/usr/local/bin/shfmt",
+      //   "shellformat.useEditorConfig": true,
+      //   "editor.defaultFormatter": "esbenp.prettier-vscode"
+      // }
+    }
+  }
+  // 👇 Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+  // "remoteUser": "root"
+}

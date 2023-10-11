@@ -1,0 +1,16 @@
+[project]
+name = "LuxAI2"
+version = "0.0.0"
+description = ""
+authors = [
+    {name = "Sanggyu Lee", email = "8325289+gyusang@users.noreply.github.com"},
+    {name = "Haneul Choi", email = "caelum02@snu.ac.kr"},
+]
+dependencies = [
+    "jaxlib @ https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.7+cuda11.cudnn82-cp310-cp310-manylinux2014_x86_64.whl",
+    "jax==0.4.7",
+]
+requires-python = ">=3.10,<3.11"
+readme = "README.md"
+license = {text = "NOLICENSE"}
+
