@@ -18,7 +18,8 @@
 		"donjayamanne.python-environment-manager",
 		"DavidAnson.vscode-markdownlint",
 		"GitHub.copilot",
-		"ms-azuretools.vscode-docker"
+		"ms-azuretools.vscode-docker",
+		"ms-toolsai.jupyter"
 	]
       // "settings": {
       //   "shellformat.path": "/usr/local/bin/shfmt",
