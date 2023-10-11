@@ -29,4 +29,4 @@ RUN curl -sSL https://pdm.fming.dev/install-pdm.py | python - \
     && pdm completion zsh > ${ZSH_CUSTOM}/plugins/pdm/_pdm \
     && sed -i "s|^plugins=(|&pdm |" ${HOME}/.zshrc \
     && echo 'eval $(pdm venv activate in-project)' >>${HOME}/.zshrc \
-    && echo 'export COMPUTE_PLATFORM=cpu'
+    && echo 'export COMPUTE_PLATFORM=cpu' >> ${HOME}/.zshrc 
