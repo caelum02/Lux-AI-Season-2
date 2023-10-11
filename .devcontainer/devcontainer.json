@@ -9,7 +9,7 @@
   // 👇 Use 'forwardPorts' to make a list of ports inside the container available locally.
   // "forwardPorts": [],
   // 👇 Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "cd /workspaces/LuX-AI-Season-2 && pdm use -f && pdm venv create && eval $(pdm venv activate in-project) && pdm update",
+  // "postCreateCommand": "",
   // 👇 Configure tool-specific properties.
   "customizations": {
     "vscode": {
