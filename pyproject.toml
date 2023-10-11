@@ -8,9 +8,30 @@ authors = [
 ]
 dependencies = [
     "jaxlib @ https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.7+cuda11.cudnn82-cp310-cp310-manylinux2014_x86_64.whl",
-    "jax==0.4.7",
+    "jax[cuda11_cudnn82]==0.4.7",
+    "rich>=13.6.0",
+    "juxai-s2>=3.0.0",
+    "vec-noise @ file:///${PROJECT_ROOT}/vec_noise-1.1.4",
+    "torch>=2.1.0",
+    "torchvision>=0.16.0",
+    "torchaudio>=2.1.0",
 ]
 requires-python = ">=3.10,<3.11"
 readme = "README.md"
 license = {text = "NOLICENSE"}
 
+[tool.pdm.dev-dependencies]
+dev = [
+    "jupyter>=1.0.0",
+    "opencv-python-headless>=4.8.1.78",
+]
+
+[[tool.pdm.source]]
+name = "torch"
+url = "https://download.pytorch.org/whl/${COMPUTE_PLATFORM}"
+verify_ssl = true
+
+[[tool.pdm.source]]
+name = "jaxlib"
+url = "https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+verify_ssl = true
