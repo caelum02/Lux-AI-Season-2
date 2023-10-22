@@ -12,6 +12,10 @@ from functools import partial
 from utils import replay_run_early_phase, replay_run_n_late_game_step
 
 MAP_SIZE = 64
+LIGHT_BATTERY_CAPACITY = 150
+HEAVY_BATTERY_CAPACITY = 3000
+LIGHT_CARGO_SPACE = 100
+HEAVY_CARGO_SPACE = 1000
 
 # First vectorize on the feature axis, and then on the team axis
 @partial(vmap, in_axes=0, out_axes=0) # team axis
@@ -56,25 +60,35 @@ def get_unit_existence(unit_mask, unit_type, x, y):
     return unit_map
 
 @jit
-def get_unit_resource(cargo, power, x, y,):
+def get_unit_feature(unit_mask, unit_type, cargo, power, x, y):
     '''
         unit_mask : ShapedArray(bool[2, MAX_N_UNITS])
+        unit_type : ShapedArray(bool[2, MAX_N_UNITS])
         cargo: ShapedArray(int32[2, MAX_N_UNITS, 4])
         power: ShapedArray(int32[2, MAX_N_UNITS])
         x : ShapedArray(int8[2, MAX_N_UNITS])
         y : ShapedArray(int8[2, MAX_N_UNITS])
 
-        output: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, 5])
+        output: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, 12])
 
-        feature: [ice, ore, water, metal, power]
+        feature: [light_existence, heavy_existence, (current) ice, ore, water, metal, power, (cargo empty space) ice, ore, water, metal, power]
     ''' 
 
-    resource = jnp.concatenate((cargo, power[...,None]), axis=-1)  
+    light_mask = unit_mask & (unit_type==UnitType.LIGHT)
+    heavy_mask = unit_mask & (unit_type==UnitType.HEAVY)
+    unit_mask_per_type = jnp.stack((light_mask, heavy_mask), axis=-1)
 
-    unit_resource_map = to_board(x, y, resource)
+    cargo_space = light_mask * LIGHT_CARGO_SPACE + heavy_mask * HEAVY_CARGO_SPACE
+    batttery_capacity = light_mask * LIGHT_BATTERY_CAPACITY + heavy_mask * HEAVY_BATTERY_CAPACITY
+    
+    cargo_left = cargo_space[...,None] - cargo
+    battery_left = batttery_capacity - power
+
+    feature = jnp.concatenate((unit_mask_per_type, cargo, power[...,None], cargo_left, battery_left[...,None]), axis=-1)  
+
+    unit_resource_map = to_board(x, y, feature)
 
     return unit_resource_map
-
 
 if __name__=="__main__":
 
