@@ -39,27 +39,6 @@ def to_board(x, y, unit_info):
     return out
 
 @jit
-def get_unit_existence(unit_mask, unit_type, x, y):
-    '''
-        unit_type : ShapedArray(int8[2, MAX_N_UNITS])
-        unit_mask : ShapedArray(bool[2, MAX_N_UNITS])
-        x : ShapedArray(int8[2, MAX_N_UNITS])
-        y : ShapedArray(int8[2, MAX_N_UNITS])
-
-        output: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, 2]) 
-
-        feature: [light, heavy]   
-    '''
-
-    light_mask = unit_mask & (unit_type==UnitType.LIGHT)
-    heavy_mask = unit_mask & (unit_type==UnitType.HEAVY)
-
-    mask = jnp.stack((light_mask, heavy_mask), axis=-1)
-    unit_map = to_board(x, y, mask)  
-    
-    return unit_map
-
-@jit
 def get_unit_feature(unit_mask, unit_type, cargo, power, x, y):
     '''
         unit_mask : ShapedArray(bool[2, MAX_N_UNITS])
@@ -103,14 +82,15 @@ if __name__=="__main__":
     state, lux_actions = replay_run_early_phase(jux_env, state, lux_actions)
 
     state, lux_actions = replay_run_n_late_game_step(100, jux_env, state, lux_actions)    
-    unit_map = get_unit_existence(state.unit_mask, state.units.unit_type, state.units.pos.x, state.units.pos.y)
+    unit_feature = get_unit_feature(state.unit_mask, state.units.unit_type, state.units.pos.x, state.units.pos.y)
 
-    fig, axes = plt.subplots(2, 2)
-    axes[0, 0].imshow(unit_map[0].T)
-    axes[0, 1].imshow(unit_map[1].T)
-    axes[1, 0].imshow(unit_map[2].T)
-    axes[1, 1].imshow(unit_map[3].T)
-
+    fig, axes = plt.subplots(2, 12, figsize=(48, 8))
+    features = ['light_existence', 'heavy_existence', 'ice', 'ore', 'water', 'metal', 'power', 'ice_left', 'ore_left', 'water_left', 'metal_left', 'powerleft']
+    for i in range(2):
+        for j in range(12):
+            axes[i, j].imshow(unit_feature[i, :, :, j], cmap='gray')
+            axes[i, j].set_title(f"Player {i}, {features[j]}")
+    fig.suptitle("Unit Features")
     plt.show()
 
     plt.imshow(jux_env.render(state, 'rgb_array'))
