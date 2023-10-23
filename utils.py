@@ -3,6 +3,7 @@ import jux
 from jux.env import JuxEnv
 from jux.config import JuxBufferConfig
 from jux.state import State
+from jux.actions import JuxAction
 
 def replay_run_early_phase(jux_env: JuxEnv, state: State, lux_actions):
     """
@@ -17,7 +18,7 @@ def replay_run_early_phase(jux_env: JuxEnv, state: State, lux_actions):
 
     # Bid Step
     bid, faction = jux.actions.bid_action_from_lux(next(lux_actions))
-    state, (obs, rwd, dones, infos) = jux_env.step_bid(initial_state, bid, faction)
+    state, (obs, rwd, dones, infos) = jux_env.step_bid(state, bid, faction)
 
     # Factory Placement Step
     while state.real_env_steps < 0:
