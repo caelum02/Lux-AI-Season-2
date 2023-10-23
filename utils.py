@@ -1,10 +1,10 @@
 import jux
 
 from jux.env import JuxEnv
+from jux.config import JuxBufferConfig
 from jux.state import State
-from jux.actions import JuxAction
 
-def replay_run_early_phase(jux_env: JuxEnv, initial_state: State, lux_actions):
+def replay_run_early_phase(jux_env: JuxEnv, state: State, lux_actions):
     """
         Util function | skip game until late_game stage
         
@@ -40,3 +40,9 @@ def replay_run_n_late_game_step(n: int, jux_env: JuxEnv, state: State, lux_actio
         state, _ = jux_env.step_late_game(state, jux_act)
     
     return state, lux_actions
+
+if __name__ == "__main__":
+    lux_env, lux_actions = jux.utils.load_replay('replays/52958192.json')
+    jux_env, state = JuxEnv.from_lux(lux_env, buf_cfg=JuxBufferConfig(MAX_N_UNITS=200))
+    state, lux_actions = replay_run_early_phase(jux_env, state, lux_actions)
+    state, lux_actions = replay_run_n_late_game_step(100, jux_env, state, lux_actions)
