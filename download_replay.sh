@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #Please write ids of replay to download
-ids=(52965522 51283939)
+ids=(52965522 52958192 52900827)
 
 mkdir -p data && cd data
 
