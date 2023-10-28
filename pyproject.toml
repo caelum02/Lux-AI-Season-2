@@ -10,7 +10,7 @@ dependencies = [
     "jaxlib @ https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.7+cuda11.cudnn82-cp310-cp310-manylinux2014_x86_64.whl",
     "jax[cuda11_cudnn82]==0.4.7",
     "rich>=13.6.0",
-    "juxai-s2>=3.0.0",
+    "juxai-s2 @ git+https://github.com/caelum02/jux.git@main",
     "vec-noise @ file:///${PROJECT_ROOT}/vec_noise-1.1.4",
     "torch>=2.1.0",
     "torchvision>=0.16.0",
