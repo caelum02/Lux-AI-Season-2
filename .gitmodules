@@ -1,0 +1,3 @@
+[submodule "jux"]
+	path = jux
+	url = https://github.com/caelum02/jux.git
