@@ -9,14 +9,39 @@ import jux
 from jux.env import JuxEnv
 from jux.config import JuxBufferConfig
 from jux.state import State
-from jux.actions import JuxAction
+from jux.actions import JuxAction, ActionQueue
+from jux.unit import Unit
 
 def get_unit_idx(state: State, id: int):
+    """
+    Return unit_idx of unit with id `id`
+    """
     unit_idx = state.unit_id2idx[id]
     return unit_idx[...,0], unit_idx[...,1]
 
 def get_unit_pos(state: State, id: int):
+    """
+    Return unit position of unit with id `id`
+
+    return: Array (2,)
+    """
     return state.units.pos.pos[get_unit_idx(state, id)]
+
+def get_action_queue_from_id(state: State, id: int)->ActionQueue:
+    """
+    Return action queue of unit with id `id`
+    """
+    idx = get_unit_idx(state, id)
+    from_jux = tree_map(lambda x: x[idx], state.units.action_queue).to_lux()
+    return from_jux
+
+def get_unit_from_id(state: State, id: id)->Unit:
+    """
+    Return unit with id `id`
+
+    """
+    idx = get_unit_idx(state, id)
+    return tree_map(lambda x: x[idx], state.units)
 
 def replay_run_early_phase(jux_env: JuxEnv, state: State, lux_actions, lux_env=None):
     """
@@ -85,29 +110,37 @@ def replay_run_n_late_game_step(n: int, jux_env: JuxEnv, state: State, lux_actio
         return state, lux_actions, lux_env
     return state, lux_actions
 
-def action_queue_validity(state: State):
-    return ~state.unit_mask | (state.units.action_queue.count == 0) | \
+def action_queue_valid(state: State):
+    """
+    Check if action queue is valid
+    """
+    return (~state.unit_mask | (state.units.action_queue.count == 0) | \
                  ((0 <= state.units.action_queue.front) & (state.units.action_queue.front < 20) & 
-                   (0 <= state.units.action_queue.rear) & (state.units.action_queue.rear < 20))
+                   (0 <= state.units.action_queue.rear) & (state.units.action_queue.rear < 20))).all()
 
-def run_check_pos(obs, state):
+def unit_pos_cross_valid(obs, state):
+    """
+    Check if unit position is consistent between jux and lux
+    obs: lux observation
+    state: jux state
+    """
     for player_id, player_units in obs['units'].items():
         for unit_id, unit in player_units.items():
             assert unit_id.startswith('unit_')
             int_id = int(unit_id.split('_')[1])
             pos = get_unit_pos(state, int_id)
-            assert (pos == unit['pos']).all()
+            if not (pos == unit['pos']).all():
+                return False
+    return True
 
-def get_action_queue_from_id(state, id):
-    idx = get_unit_idx(state, id)
-    from_jux = tree_map(lambda x: x[idx], state.units.action_queue).to_lux()
-    return from_jux
 
-def get_unit_from_id(state, id):
-    idx = get_unit_idx(state, id)
-    return tree_map(lambda x: x[idx], state.units)
 
-def run_check_action_queue(obs, state):
+def action_queue_cross_valid(obs, state):
+    """
+    Check if action queue is consistent between jux and lux
+    obs: lux observation
+    state: jux state
+    """
     for player_id, player_units in obs['units'].items():
         for unit_id, unit in player_units.items():
             int_id = int(unit_id.split('_')[1])
@@ -115,9 +148,14 @@ def run_check_action_queue(obs, state):
             if len(unit['action_queue']) == 0:
                 continue
             from_lux = jnp.stack(unit['action_queue'])
-            assert (from_lux == from_jux).all()
-
+            if not (from_lux == from_jux).all():
+                return False
+    return True
 
 def print_action_queue(array):
+    """
+    Print action queue in a human readable format
+    array : (n, 6)    
+    """
     for i, a in enumerate(array):
         print(f"{i}: {format_action_vec(a)}")
