@@ -19,14 +19,13 @@ HEAVY_CARGO_SPACE = 1000
 
 # First vectorize on the feature axis, and then on the team axis
 @partial(vmap, in_axes=0, out_axes=0) # team axis
-@partial(vmap, in_axes=(None, None, -1), out_axes=-1) # flax follows channels-last convention
-def to_board(x, y, unit_info):
+@partial(vmap, in_axes=(None, -1), out_axes=-1) # flax follows channels-last convention
+def to_board(pos, unit_info):
     '''
     n_info: number of features to embed in the board (vectorized axis)
 
     unit_info: ShapedArray(int8[2, MAX_N_UNITS, n_info])
-    x: ShapedArray(int8[2, MAX_N_UNITS])
-    y: ShapedArray(int8[2, MAX_N_UNITS])
+    pos: ShapedArray(int8[2, MAX_N_UNITS, 2])
    
     out: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, n_info])
     '''
@@ -34,26 +33,36 @@ def to_board(x, y, unit_info):
     zeros = jnp.zeros((MAP_SIZE, MAP_SIZE))
 
     # `mode=drop` prevents unexpected index-out-of-bound behavior
-    out = zeros.at[x, y].add(unit_info, mode='drop')
+    out = zeros.at[pos.x, pos.y].set(unit_info, mode='drop')
+    
 
     return out
 
+@partial(vmap, in_axes=0, out_axes=0) # team axis
+@partial(vmap, in_axes=(None, -1), out_axes=-1) # flax follows channels-last convention
+def to_board_for(pos, unit_info):
+    map = jnp.zeros((MAP_SIZE, MAP_SIZE))
+    def _to_board_i(i, map):
+        loc = pos.pos[i]
+        return map.at[loc[0], loc[1]].set(unit_info[i], mode='drop')
+    jax.lax.fori_loop(0, pos.pos.shape[0], _to_board_i, map)
+    return map
+
 @jit
-def get_unit_feature(unit_mask, unit_type, cargo, power, x, y):
+def get_unit_feature(unit_mask, unit_type, cargo, power, pos):
     '''
         unit_mask : ShapedArray(bool[2, MAX_N_UNITS])
         unit_type : ShapedArray(bool[2, MAX_N_UNITS])
         cargo: ShapedArray(int32[2, MAX_N_UNITS, 4])
         power: ShapedArray(int32[2, MAX_N_UNITS])
-        x : ShapedArray(int8[2, MAX_N_UNITS])
-        y : ShapedArray(int8[2, MAX_N_UNITS])
+        pos : ShapedArray(int8[2, MAX_N_UNITS, 2])
 
         output: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, 12])
 
         feature: [light_existence, heavy_existence, (current) ice, ore, water, metal, power, (cargo empty space) ice, ore, water, metal, power]
     ''' 
 
-    light_mask = unit_mask & (unit_type==UnitType.LIGHT)
+    light_mask = unit_mask & (unit_type==UnitType.LIGHT)  # NOTE : is unit_mask necessary?
     heavy_mask = unit_mask & (unit_type==UnitType.HEAVY)
     unit_mask_per_type = jnp.stack((light_mask, heavy_mask), axis=-1)
 
@@ -65,7 +74,7 @@ def get_unit_feature(unit_mask, unit_type, cargo, power, x, y):
 
     feature = jnp.concatenate((unit_mask_per_type, cargo, power[...,None], cargo_left, battery_left[...,None]), axis=-1)  
 
-    unit_resource_map = to_board(x, y, feature)
+    unit_resource_map = to_board_for(pos, feature)
 
     return unit_resource_map
 

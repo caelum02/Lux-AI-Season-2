@@ -82,7 +82,7 @@ def replay_run_n_late_game_step(n: int, jux_env: JuxEnv, state: State, lux_actio
     with_lux_env = lux_env is not None
 
     for i in range(n):
-        print(f"[Replay Util] Replaying {i}/{n} steps")
+        print(f"[Replay Util] Replaying {i+1}/{n} steps")
         lux_act = next(lux_actions)
         jux_act = JuxAction.from_lux(state, lux_act)
         # assert jux_act.to_lux(state) == lux_act, f"JuxAction.to_lux() is not reversible: {jux_act.to_lux(state)} != {lux_act}"
