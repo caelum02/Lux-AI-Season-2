@@ -39,13 +39,12 @@ def to_board(pos, unit_info):
     return out
 
 @partial(vmap, in_axes=0, out_axes=0) # team axis
-@partial(vmap, in_axes=(None, -1), out_axes=-1) # flax follows channels-last convention
 def to_board_for(pos, unit_info):
-    map = jnp.zeros((MAP_SIZE, MAP_SIZE))
+    map = jnp.zeros((MAP_SIZE, MAP_SIZE, unit_info.shape[-1]))
     def _to_board_i(i, map):
         loc = pos.pos[i]
         return map.at[loc[0], loc[1]].set(unit_info[i], mode='drop')
-    jax.lax.fori_loop(0, pos.pos.shape[0], _to_board_i, map)
+    map = jax.lax.fori_loop(0, pos.pos.shape[0], _to_board_i, map)
     return map
 
 @jit
