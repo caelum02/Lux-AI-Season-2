@@ -69,7 +69,7 @@ def get_unit_feature(unit_mask, unit_type, cargo, power, x, y):
 
     return unit_resource_map
 
-if __name__=="__main__":
+def main():
 
     MAX_N_UNITS = 200
 
@@ -95,3 +95,6 @@ if __name__=="__main__":
 
     plt.imshow(jux_env.render(state, 'rgb_array'))
     plt.show()
+
+if __name__=="__main__":
+    main()
