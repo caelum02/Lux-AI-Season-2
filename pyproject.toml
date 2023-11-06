@@ -16,6 +16,7 @@ dependencies = [
     "torchvision>=0.16.0",
     "torchaudio>=2.1.0",
     "flax>=0.7.4",
+    "purejaxrl @ git+https://github.com/luchris429/purejaxrl.git@main",
 ]
 requires-python = ">=3.10,<3.11"
 readme = "README.md"

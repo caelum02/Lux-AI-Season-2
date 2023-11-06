@@ -3,10 +3,9 @@
 
 [metadata]
 groups = ["default", "dev"]
-cross_platform = true
-static_urls = false
-lock_version = "4.3"
-content_hash = "sha256:8417a66aabfa8cb69b4f23a46b5111aa045940d42dcf71d5bed2331616937e48"
+strategy = ["cross_platform"]
+lock_version = "4.4"
+content_hash = "sha256:7e20bfce645f0700590d6d0d2eb6a193a38c1383211bb5a3cfbff608d4ab9068"
 
 [[package]]
 name = "absl-py"
@@ -1675,6 +1674,14 @@ files = [
     {file = "pure_eval-0.2.2-py3-none-any.whl", hash = "sha256:01eaab343580944bc56080ebe0a674b39ec44a945e6d09ba7db3cb8cec289350"},
     {file = "pure_eval-0.2.2.tar.gz", hash = "sha256:2b45320af6dfaa1750f543d714b6d1c520a1688dec6fd24d339063ce0aaa9ac3"},
 ]
+
+[[package]]
+name = "purejaxrl"
+version = "0.0.0"
+git = "https://github.com/luchris429/purejaxrl.git"
+ref = "main"
+revision = "1da1044c83e9a0d3f2a64fd9adf3fdea92871206"
+summary = ""
 
 [[package]]
 name = "pycparser"
