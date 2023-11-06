@@ -10,13 +10,8 @@ from jax import vmap, jit
 
 from functools import partial
 
-from utils import replay_run_early_phase, replay_run_n_late_game_step
-
-MAP_SIZE = 64
-LIGHT_BATTERY_CAPACITY = 150
-HEAVY_BATTERY_CAPACITY = 3000
-LIGHT_CARGO_SPACE = 100
-HEAVY_CARGO_SPACE = 1000
+from utils import replay_run_early_phase, replay_run_n_late_game_step, get_water_info, UnitCargo
+from constants import *
 
 # First vectorize on the feature axis, and then on the team axis
 @partial(vmap, in_axes=0, out_axes=0) # team axis
@@ -39,20 +34,19 @@ def to_board(pos, unit_info):
 
     return out
 
-@partial(vmap, in_axes=0, out_axes=0) # team axis
-def to_board_for(pos, unit_info):
+@partial(vmap, in_axes=0, out_axes=-2) # team axis
+def to_board_for(pos: jnp.ndarray, unit_info: jnp.ndarray):
     map = jnp.zeros((MAP_SIZE, MAP_SIZE, unit_info.shape[-1]))
     def _to_board_i(i, map):
-        loc = pos.pos[i]
+        loc = pos[i]
         return map.at[loc[0], loc[1]].set(unit_info[i], mode='drop')
-    map = jax.lax.fori_loop(0, pos.pos.shape[0], _to_board_i, map)
+    map = jax.lax.fori_loop(0, pos.shape[0], _to_board_i, map)
     return map
 
-@jit
 def get_unit_feature(state: State)->jnp.ndarray:
     '''
         state: State
-        output: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, 12])
+        output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 24])
 
         feature: [light_existence, heavy_existence, (current) ice, ore, water, metal, power, (cargo empty space) ice, ore, water, metal, power]
     ''' 
@@ -71,24 +65,60 @@ def get_unit_feature(state: State)->jnp.ndarray:
 
     feature = jnp.concatenate((unit_mask_per_type, cargo, power[...,None], cargo_left, battery_left[...,None]), axis=-1)  
 
-    unit_feature_map = to_board_for(pos, feature)
+    unit_feature_map = to_board_for(pos.pos, feature)
 
-    return unit_feature_map
+    return unit_feature_map.reshape((MAP_SIZE, MAP_SIZE, -1))
 
-@jit
-def get_factory_feature(state: State, power_previous: jnp.ndarray)->jnp.ndarray:
+def get_factory_feature(state: State)->jnp.ndarray:
     """
         state: State
-        output: ShapedArray(int8[2, MAP_SIZE, MAP_SIZE, 7])
+        output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 16])
     """
     factory_mask, cargo, power, pos = state.factory_mask, state.factories.cargo.stock, state.factories.power, state.factories.pos.pos
-    feature = jnp.concatenate((factory_mask[..., None], cargo, power[...,None], power_previous[...,None]), axis=-1)
+    _, grow_lichen_size, connected_lichen_size = get_water_info(state)
+    water_cost = jnp.ceil(grow_lichen_size / LICHEN_WATERING_COST_FACTOR).astype(UnitCargo.dtype())
+    delta_power = FACTORY_CHARGE + connected_lichen_size * POWER_PER_CONNECTED_LICHEN_TILE
+    feature = jnp.concatenate((factory_mask[..., None], cargo, power[...,None], water_cost[..., None], delta_power[..., None]), axis=-1)
 
     factory_feature_map = to_board_for(pos, feature)
 
-    return factory_feature_map
-    
+    return factory_feature_map.reshape((MAP_SIZE, MAP_SIZE, -1))
 
+def get_board_feature(state: State) -> jnp.ndarray:
+    """
+        state: State
+        output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 4])
+    """
+    board_feature_map = jnp.stack([state.board.lichen, state.board.map.rubble, state.board.map.ice, state.board.map.ore], axis=-1)
+    return board_feature_map
+
+def get_global_feature(state: State) -> jnp.ndarray:
+    real_env_steps = state.real_env_steps
+    cycle, turn_in_cycle = jnp.divmod(real_env_steps, CYCLE_LENGTH)
+    is_day = real_env_steps % CYCLE_LENGTH < DAY_LENGTH
+    return jnp.concatenate([
+        jax.nn.one_hot(cycle, TOTAL_CYCLES),
+        jax.nn.one_hot(turn_in_cycle, CYCLE_LENGTH),
+        is_day[..., None],
+        state.team_lichen_score(),
+    ], axis=-1)
+
+def get_feature(state: State) -> jnp.ndarray:
+    """
+        state: State
+        output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, C])
+    """
+    unit_feature_map = get_unit_feature(state)
+    factory_feature_map = get_factory_feature(state)
+    board_feature_map = get_board_feature(state)
+    global_feature = get_global_feature(state)
+    feature = jnp.concatenate([
+        unit_feature_map,
+        factory_feature_map,
+        board_feature_map,
+        jnp.broadcast_to(global_feature[None, None,...], (MAP_SIZE, MAP_SIZE, global_feature.shape[-1]))
+        ], axis=-1, dtype=jnp.float32)
+    return feature
 
 def main():
 
