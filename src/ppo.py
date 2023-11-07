@@ -13,25 +13,25 @@ from purejaxrl.wrappers import LogWrapper, FlattenObservationWrapper
 from jux.jux.env import JuxEnv, JuxEnvBatch
 
 from models import ActorCritic
-from preprocess import 
+from preprocess import get_feature
+from constants import *
 
 class PPOConfig(NamedTuple):
     LR: float = 1e-4
     MAX_GRAD_NORM: float = 0.5
 
-    NUM_ENVS: int = 8
-    NUM_STEPS: int = 1e3
-    TOTAL_TIMESTEPS: int = 1e3 * 
+    N_ENVS: int = 4
+    N_UPDATES: int = 1000
+    N_STEPS_PER_UPDATE: int = N_ENVS * MAX_EPISODE_LENGTH * 16
     UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 4
+    NUM_MINIBATCHES: int = 32 
 
     GAMMA: float = 0.99
-    GAE_LAMBDA: float = 0.95
+    GAE_LAMBDA: float = 0.96
     CLIP_EPS: float = 0.2
     ENT_COEF: float = 0.01  # Entropy loss coefficient
     VF_COEF: float = 0.5  # Critic loss coefficient
 
-    ANNEAL_LR: bool = True
     DEBUG: bool = True
 
 
@@ -54,7 +54,21 @@ def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_ha
         factory_placement_handler: return factory placement action from state
             Note: To be vmaped
         obs_transform: apply preprocessing to observation
+    
+        # some numbers
+        feature ~ 2MB
+        state ~ 0.5MB (max 1000 units)
+                0.1MB (max 100 units)
+        8GB 
+        
+        # psudocode
+            Run total `N_STEPS_PER_UPDATE` steps
+                with `N_ENVS` environments in parallel
+            
+    
+            
     """
+
 
 
     config["NUM_UPDATES"] = (
@@ -91,8 +105,6 @@ def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_ha
             tx=tx,
         )
 
-        
-
         # TRAIN LOOP
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
@@ -109,8 +121,8 @@ def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_ha
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, config["NUM_ENVS"])
                 obsv, env_state, reward, done, info = jax.vmap(
-                    env.step, in_axes=(0, 0, 0, None)
-                )(rng_step, env_state, action, env_params)
+                    env.step, in_axes=(0, 0, 0)
+                )(rng_step, env_state, action)
                 transition = Transition(
                     done, action, value, reward, log_prob, last_obs, info
                 )
