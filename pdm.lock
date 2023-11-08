@@ -5,7 +5,7 @@
 groups = ["default", "dev"]
 strategy = ["cross_platform"]
 lock_version = "4.4"
-content_hash = "sha256:7e20bfce645f0700590d6d0d2eb6a193a38c1383211bb5a3cfbff608d4ab9068"
+content_hash = "sha256:0d2511b4fe1765361aec86f2afe78efb6f2b55e6e1fac01814361abe8d342683"
 
 [[package]]
 name = "absl-py"
@@ -371,6 +371,40 @@ files = [
 ]
 
 [[package]]
+name = "distrax"
+version = "0.1.4"
+requires_python = ">=3.9"
+summary = "Distrax: Probability distributions in JAX."
+dependencies = [
+    "absl-py>=0.9.0",
+    "chex>=0.1.8",
+    "jax>=0.1.55",
+    "jaxlib>=0.1.67",
+    "numpy>=1.23.0",
+    "tensorflow-probability>=0.15.0",
+]
+files = [
+    {file = "distrax-0.1.4-py3-none-any.whl", hash = "sha256:20bca3ed4a2e6684c861e59f7f49e94d00939f1ce7de9ba445dd4195b449e762"},
+    {file = "distrax-0.1.4.tar.gz", hash = "sha256:9255d3e707e759418cadfe6c42162acfb16873f3aee72e0620582d4df7f56454"},
+]
+
+[[package]]
+name = "dm-tree"
+version = "0.1.8"
+summary = "Tree is a library for working with nested data structures."
+files = [
+    {file = "dm-tree-0.1.8.tar.gz", hash = "sha256:0fcaabbb14e7980377439e7140bd05552739ca5e515ecb3119f234acee4b9430"},
+    {file = "dm_tree-0.1.8-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:35cc164a79336bfcfafb47e5f297898359123bbd3330c1967f0c4994f9cf9f60"},
+    {file = "dm_tree-0.1.8-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:39070ba268c0491af9fe7a58644d99e8b4f2cde6e5884ba3380bddc84ed43d5f"},
+    {file = "dm_tree-0.1.8-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:2869228d9c619074de501a3c10dc7f07c75422f8fab36ecdcb859b6f1b1ec3ef"},
+    {file = "dm_tree-0.1.8-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d20f2faa3672b52e5013f4077117bfb99c4cfc0b445d3bde1584c34032b57436"},
+    {file = "dm_tree-0.1.8-cp310-cp310-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:5483dca4d7eb1a0d65fe86d3b6a53ae717face83c1f17e0887b1a4a64ae5c410"},
+    {file = "dm_tree-0.1.8-cp310-cp310-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:1d7c26e431fc93cc7e0cba867eb000db6a05f6f2b25af11ac4e9dada88fc5bca"},
+    {file = "dm_tree-0.1.8-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e4d714371bb08839e4e5e29024fc95832d9affe129825ef38836b143028bd144"},
+    {file = "dm_tree-0.1.8-cp310-cp310-win_amd64.whl", hash = "sha256:d40fa4106ca6edc66760246a08f500ec0c85ef55c762fb4a363f6ee739ba02ee"},
+]
+
+[[package]]
 name = "etils"
 version = "1.5.1"
 requires_python = ">=3.9"
@@ -484,6 +518,16 @@ summary = "File-system specification"
 files = [
     {file = "fsspec-2023.9.2-py3-none-any.whl", hash = "sha256:603dbc52c75b84da501b9b2ec8c11e1f61c25984c4a0dda1f129ef391fbfc9b4"},
     {file = "fsspec-2023.9.2.tar.gz", hash = "sha256:80bfb8c70cc27b2178cc62a935ecf242fc6e8c3fb801f9c571fc01b1e715ba7d"},
+]
+
+[[package]]
+name = "gast"
+version = "0.5.4"
+requires_python = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
+summary = "Python AST that abstracts the underlying Python version"
+files = [
+    {file = "gast-0.5.4-py3-none-any.whl", hash = "sha256:6fc4fa5fa10b72fb8aab4ae58bcb023058386e67b6fa2e3e34cec5c769360316"},
+    {file = "gast-0.5.4.tar.gz", hash = "sha256:9c270fe5f4b130969b54174de7db4e764b09b4f7f67ccfc32480e29f78348d97"},
 ]
 
 [[package]]
@@ -1676,14 +1720,6 @@ files = [
 ]
 
 [[package]]
-name = "purejaxrl"
-version = "0.0.0"
-git = "https://github.com/luchris429/purejaxrl.git"
-ref = "main"
-revision = "1da1044c83e9a0d3f2a64fd9adf3fdea92871206"
-summary = ""
-
-[[package]]
 name = "pycparser"
 version = "2.21"
 requires_python = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*"
@@ -2080,6 +2116,24 @@ dependencies = [
 files = [
     {file = "sympy-1.12-py3-none-any.whl", hash = "sha256:c3588cd4295d0c0f603d0f2ae780587e64e2efeedb3521e46b9bb1d08d184fa5"},
     {file = "sympy-1.12.tar.gz", hash = "sha256:ebf595c8dac3e0fdc4152c51878b498396ec7f30e7a914d6071e674d49420fb8"},
+]
+
+[[package]]
+name = "tensorflow-probability"
+version = "0.22.1"
+requires_python = ">=3.9"
+summary = "Probabilistic modeling and statistical inference in TensorFlow"
+dependencies = [
+    "absl-py",
+    "cloudpickle>=1.3",
+    "decorator",
+    "dm-tree",
+    "gast>=0.3.2",
+    "numpy>=1.13.3",
+    "six>=1.10.0",
+]
+files = [
+    {file = "tensorflow_probability-0.22.1-py2.py3-none-any.whl", hash = "sha256:3035b936b028ea10bd3a9589329557f5b2c5ace813a6bff3f59acfe3226eef9b"},
 ]
 
 [[package]]
