@@ -7,11 +7,15 @@ from jux.state import State
 import jax
 import jax.numpy as jnp
 from jax import vmap, jit
+from jax import Array
 
 from functools import partial
+from typing import NamedTuple
+from space import ObsSpace
 
 from utils import replay_run_early_phase, replay_run_n_late_game_step, get_water_info, UnitCargo
 from constants import *
+
 
 # First vectorize on the feature axis, and then on the team axis
 @partial(vmap, in_axes=0, out_axes=0) # team axis
@@ -43,7 +47,7 @@ def to_board_for(pos: jnp.ndarray, unit_info: jnp.ndarray):
     map = jax.lax.fori_loop(0, pos.shape[0], _to_board_i, map)
     return map
 
-def get_unit_feature(state: State)->jnp.ndarray:
+def get_unit_feature(state: State)->Array:
     '''
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 24])
@@ -69,7 +73,7 @@ def get_unit_feature(state: State)->jnp.ndarray:
 
     return unit_feature_map.reshape((MAP_SIZE, MAP_SIZE, -1))
 
-def get_factory_feature(state: State)->jnp.ndarray:
+def get_factory_feature(state: State)->Array:
     """
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 16])
@@ -84,7 +88,7 @@ def get_factory_feature(state: State)->jnp.ndarray:
 
     return factory_feature_map.reshape((MAP_SIZE, MAP_SIZE, -1))
 
-def get_board_feature(state: State) -> jnp.ndarray:
+def get_board_feature(state: State) -> Array:
     """
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 4])
@@ -92,7 +96,7 @@ def get_board_feature(state: State) -> jnp.ndarray:
     board_feature_map = jnp.stack([state.board.lichen, state.board.map.rubble, state.board.map.ice, state.board.map.ore], axis=-1)
     return board_feature_map
 
-def get_global_feature(state: State) -> jnp.ndarray:
+def get_global_feature(state: State) -> Array:
     real_env_steps = state.real_env_steps
     cycle, turn_in_cycle = jnp.divmod(real_env_steps, CYCLE_LENGTH)
     is_day = real_env_steps % CYCLE_LENGTH < DAY_LENGTH
@@ -103,7 +107,8 @@ def get_global_feature(state: State) -> jnp.ndarray:
         state.team_lichen_score(),
     ], axis=-1)
 
-def get_feature(state: State) -> jnp.ndarray:
+
+def get_feature(state: State) -> Array:
     """
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, C])
@@ -119,6 +124,20 @@ def get_feature(state: State) -> jnp.ndarray:
         jnp.broadcast_to(global_feature[None, None,...], (MAP_SIZE, MAP_SIZE, global_feature.shape[-1]))
         ], axis=-1, dtype=jnp.float32)
     return feature
+
+def get_feature_split_global(state: State) -> ObsSpace:
+    unit_feature_map = get_unit_feature(state)
+    factory_feature_map = get_factory_feature(state)
+    board_feature_map = get_board_feature(state)
+    global_feature = get_global_feature(state)
+    feature = jnp.concatenate([
+        unit_feature_map,
+        factory_feature_map,
+        board_feature_map,
+        ], axis=-1, dtype=jnp.float32)
+    return ObsSpace(feature, global_feature)
+
+batch_get_feature = vmap(get_feature_split_global)
 
 def main():
 

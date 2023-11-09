@@ -9,7 +9,6 @@ class ObsSpace(NamedTuple): # Input to the model
     board_like_feature: Array
     vector_feature: Array
 
-
 # TODO
 class ActionSpace(NamedTuple): # Output of the model
     pass
