@@ -1,4 +1,5 @@
-from jax import jit
+import jax
+from jax import jit, Array
 from jax.tree_util import tree_map
 import jax.numpy as jnp
 
@@ -15,6 +16,15 @@ from jux.utils import imax
 from jux.unit_cargo import UnitCargo
 from jux.map.position import Position
 from jux.factory import Factory
+
+from typing import Tuple
+
+def get_seeds(rng: Array, shape=Tuple)->Array:
+    """
+    Get a random seed from rng
+    """
+    return jax.random.randint(rng, shape=shape, minval=-2**31, maxval=2**31-1)
+
 
 def get_unit_idx(state: State, id: int):
     """

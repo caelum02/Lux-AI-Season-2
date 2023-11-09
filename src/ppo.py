@@ -1,20 +1,18 @@
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
-import numpy as np
 import optax
-from flax.linen.initializers import constant, orthogonal
-from typing import Sequence, NamedTuple, Any
+from typing import NamedTuple
 from flax.training.train_state import TrainState
 import distrax
-import gymnax
-from purejaxrl.wrappers import LogWrapper, FlattenObservationWrapper
 
-from jux.jux.env import JuxEnv, JuxEnvBatch
+from jux.env import JuxEnv, JuxEnvBatch
+from jux.config import JuxBufferConfig, EnvConfig
 
-from models import ActorCritic
-from preprocess import get_feature
+from preprocess import get_feature, batch_get_feature
 from constants import *
+from space import ObsSpace, ActionSpace
+from utils import get_seeds
+
 
 class PPOConfig(NamedTuple):
     LR: float = 1e-4
@@ -22,7 +20,7 @@ class PPOConfig(NamedTuple):
 
     N_ENVS: int = 4
     N_UPDATES: int = 1000
-    N_STEPS_PER_UPDATE: int = N_ENVS * MAX_EPISODE_LENGTH * 16
+    N_EPISODES_PER_ENV: int = 16
     UPDATE_EPOCHS: int = 4
     NUM_MINIBATCHES: int = 32 
 
@@ -32,22 +30,29 @@ class PPOConfig(NamedTuple):
     ENT_COEF: float = 0.01  # Entropy loss coefficient
     VF_COEF: float = 0.5  # Critic loss coefficient
 
-    DEBUG: bool = True
 
-
-class Transition(NamedTuple):
+class Trajectory(NamedTuple):
     done: jnp.ndarray
     action: jnp.ndarray
     value: jnp.ndarray
     reward: jnp.ndarray
     log_prob: jnp.ndarray
-    obs: jnp.ndarray
-    info: jnp.ndarray
+    obs: ObsSpace
 
+class RunnerState(NamedTuple):
+    train_state: TrainState
+    env_state: JuxEnv
+    obs: ObsSpace # extracted feature
+    rng: jax.Array
+    
+class UpdateState(NamedTuple):
+    train_state: TrainState
+    rng: jax.Array
 
-def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_handler):
+def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: PPOConfig, 
+               actor_critic, bid_agent, factory_placement_agent, rng):
     """
-        env: JuxEnvBatch initialized with env_config and buf_config
+        batch_env: JuxEnvBatch initialized with env_config and buf_config
         actor_critic: ActorCritic model
         bid_handler: return bid action from state 
             Note: To be vmapped
@@ -57,6 +62,7 @@ def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_ha
     
         # some numbers
         feature ~ 2MB
+        total feature size per epsiode ~ 2GB 
         state ~ 0.5MB (max 1000 units)
                 0.1MB (max 100 units)
         8GB 
@@ -64,39 +70,29 @@ def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_ha
         # psudocode
             Run total `N_STEPS_PER_UPDATE` steps
                 with `N_ENVS` environments in parallel
-            
-    
+            Caculate GAE    
+            Update `UPDATE_EPOCHS` epochs
             
     """
 
-
-
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"] // config["NUM_STEPS"] // config["NUM_ENVS"]
-    )
-    config["MINIBATCH_SIZE"] = (
-        config["NUM_ENVS"] * config["NUM_STEPS"] // config["NUM_MINIBATCHES"]
-    )
-
     def train(rng):
-        # INIT NETWORK
-        network = ActorCritic(
-            max_n_units = env.buf_cfg.MAX_N_UNITS
-        )
+        batch_env = JuxEnvBatch(env_config, buf_config)
+        num_envs = ppo_config.N_ENVS
 
-        # INIT ENV
-        rng, _rng = jax.random.split(rng)
-        seeds = jax.random.randint(_rng, (config["NUM_ENVS"],), 0, 2 ** 32 - 1)
-        states = env.reset(seeds)
 
+        # Initialize network
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.empty(, dtype=jnp.float32)
-        network_params = network.init(_rng, init_x)
-     
+        
+        dummy_seeds = get_seeds(_rng, (1,))
+        dummy_state = batch_env.reset(dummy_seeds)
+        feature = batch_get_feature(dummy_state)
+        network = actor_critic
+        network_params = network.init(_rng, feature)
+   
         # Optimizer - clip_by_global_norm / adam
         tx = optax.chain(
-            optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
-            optax.adam(config["LR"], eps=1e-5),
+            optax.clip_by_global_norm(ppo_config.MAX_GRAD_NORM),
+            optax.adam(ppo_config.LR, eps=1e-5),
         )
 
         train_state = TrainState.create(
@@ -106,171 +102,88 @@ def make_train(env: JuxEnvBatch, actor_critic, bid_handler, factory_placement_ha
         )
 
         # TRAIN LOOP
-        def _update_step(runner_state, unused):
-            # COLLECT TRAJECTORIES
-            def _env_step(runner_state, unused):
-                train_state, env_state, last_obs, rng = runner_state
+        def _update_step(update_state: UpdateState, _):
+            train_state, rng = update_state
+            
+            # Initialize env_state
+            rng, _rng = jax.random.split(rng)
+            seeds = get_seeds(_rng, (num_envs,))
+            env_state = batch_env.reset(seeds)
+
+            # Bidding step
+            rng, _rng = jax.random.split(rng)
+            _rng = jax.random.split(_rng, num=num_envs)
+            bid, faction = jax.vmap(bid_agent)(env_state, _rng)
+            env_state, _ = batch_env.step_bid(env_state, bid, faction)
+
+            # Factory placement step
+            n_factories = env_state.board.factories_per_team[0].astype(jnp.int32)
+
+            def _factory_placement_step(i, env_state_rng):
+                env_state, rng = env_state_rng
+                rng, _rng = jax.random.split(rng)
+                factory_placement = agent.random_factory_agent_batched(env_state, _rng)
+                env_state, _ = batch_env.step_factory_placement(env_state, *factory_placement)
+                return env_state, rng
+
+            rng, _rng = jax.random.split(rng)
+            env_state, _ = jax.lax.fori_loop(0, 2*n_factories, _factory_placement_step, (env_state, _rng))
+
+            # Late game step
+            def _env_step(runner_state):
+                train_state, env_state, feature, rng = runner_state
 
                 # SELECT ACTION
+                # TODO: Check if get_feature is vectorized
+                action, value = network.apply(train_state.params, feature)
+
                 rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(train_state.params, last_obs)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
 
                 # STEP ENV
-                rng, _rng = jax.random.split(rng)
-                rng_step = jax.random.split(_rng, config["NUM_ENVS"])
-                obsv, env_state, reward, done, info = jax.vmap(
-                    env.step, in_axes=(0, 0, 0)
-                )(rng_step, env_state, action)
-                transition = Transition(
-                    done, action, value, reward, log_prob, last_obs, info
+                env_state, (_, reward, done, _) = env_state.late_game_step(env_state, action)
+                transition = Trajectory(
+                    done, action, value, reward, log_prob, get_feature(env_state)
                 )
-                runner_state = (train_state, env_state, obsv, rng)
+                runner_state = RunnerState(train_state, env_state, feature, rng)
                 return runner_state, transition
 
+            rng, _rng = jax.random.split(rng)
+            runner_state = RunnerState(train_state, env_state, feature, _rng)
+
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, runner_state, None, config["NUM_STEPS"]
+                _env_step, runner_state, None, ppo_config.NUM_STEPS
             )
 
-            # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, rng = runner_state
-            _, last_val = network.apply(train_state.params, last_obs)
-
-            def _calculate_gae(traj_batch, last_val):
-                def _get_advantages(gae_and_next_value, transition):
-                    gae, next_value = gae_and_next_value
-                    done, value, reward = (
-                        transition.done,
-                        transition.value,
-                        transition.reward,
-                    )
-                    delta = reward + config["GAMMA"] * next_value * (1 - done) - value
-                    gae = (
-                        delta
-                        + config["GAMMA"] * config["GAE_LAMBDA"] * (1 - done) * gae
-                    )
-                    return (gae, value), gae
-
-                _, advantages = jax.lax.scan(
-                    _get_advantages,
-                    (jnp.zeros_like(last_val), last_val),
-                    traj_batch,
-                    reverse=True,
-                    unroll=16,
-                )
-                return advantages, advantages + traj_batch.value
-
-            advantages, targets = _calculate_gae(traj_batch, last_val)
-
-            # UPDATE NETWORK
-            def _update_epoch(update_state, unused):
-                def _update_minbatch(train_state, batch_info):
-                    traj_batch, advantages, targets = batch_info
-
-                    def _loss_fn(params, traj_batch, gae, targets):
-                        # RERUN NETWORK
-                        pi, value = network.apply(params, traj_batch.obs)
-                        log_prob = pi.log_prob(traj_batch.action)
-
-                        # CALCULATE VALUE LOSS
-                        value_pred_clipped = traj_batch.value + (
-                            value - traj_batch.value
-                        ).clip(-config["CLIP_EPS"], config["CLIP_EPS"])
-                        value_losses = jnp.square(value - targets)
-                        value_losses_clipped = jnp.square(value_pred_clipped - targets)
-                        value_loss = (
-                            0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
-                        )
-
-                        # CALCULATE ACTOR LOSS
-                        ratio = jnp.exp(log_prob - traj_batch.log_prob)
-                        gae = (gae - gae.mean()) / (gae.std() + 1e-8)
-                        loss_actor1 = ratio * gae
-                        loss_actor2 = (
-                            jnp.clip(
-                                ratio,
-                                1.0 - config["CLIP_EPS"],
-                                1.0 + config["CLIP_EPS"],
-                            )
-                            * gae
-                        )
-                        loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
-                        loss_actor = loss_actor.mean()
-                        entropy = pi.entropy().mean()
-
-                        total_loss = (
-                            loss_actor
-                            + config["VF_COEF"] * value_loss
-                            - config["ENT_COEF"] * entropy
-                        )
-                        return total_loss, (value_loss, loss_actor, entropy)
-
-                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    total_loss, grads = grad_fn(
-                        train_state.params, traj_batch, advantages, targets
-                    )
-                    train_state = train_state.apply_gradients(grads=grads)
-                    return train_state, total_loss
-
-                train_state, traj_batch, advantages, targets, rng = update_state
-                rng, _rng = jax.random.split(rng)
-                batch_size = config["MINIBATCH_SIZE"] * config["NUM_MINIBATCHES"]
-                assert (
-                    batch_size == config["NUM_STEPS"] * config["NUM_ENVS"]
-                ), "batch size must be equal to number of steps * number of envs"
-                permutation = jax.random.permutation(_rng, batch_size)
-                batch = (traj_batch, advantages, targets)
-                batch = jax.tree_util.tree_map(
-                    lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
-                )
-                shuffled_batch = jax.tree_util.tree_map(
-                    lambda x: jnp.take(x, permutation, axis=0), batch
-                )
-                minibatches = jax.tree_util.tree_map(
-                    lambda x: jnp.reshape(
-                        x, [config["NUM_MINIBATCHES"], -1] + list(x.shape[1:])
-                    ),
-                    shuffled_batch,
-                )
-                train_state, total_loss = jax.lax.scan(
-                    _update_minbatch, train_state, minibatches
-                )
-                update_state = (train_state, traj_batch, advantages, targets, rng)
-                return update_state, total_loss
-
-            update_state = (train_state, traj_batch, advantages, targets, rng)
-            update_state, loss_info = jax.lax.scan(
-                _update_epoch, update_state, None, config["UPDATE_EPOCHS"]
-            )
-            train_state = update_state[0]
-            metric = traj_batch.info
-            rng = update_state[-1]
-            if config.get("DEBUG"):
-                def callback(info):
-                    return_values = info["returned_episode_returns"][info["returned_episode"]]
-                    timesteps = info["timestep"][info["returned_episode"]] * config["NUM_ENVS"]
-                    for t in range(len(timesteps)):
-                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}")
-                jax.debug.callback(callback, metric)
-
-            runner_state = (train_state, env_state, last_obs, rng)
-            return runner_state, metric
+            # TODO : From here 11/8
+            return UpdateState(train_state, rng), traj_batch
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state, obsv, _rng)
-        runner_state, metric = jax.lax.scan(
-            _update_step, runner_state, None, config["NUM_UPDATES"]
+        update_state = UpdateState(train_state, _rng)
+        update_state, traj_batch = jax.lax.scan(
+            _update_step, update_state, None, n_updates
         )
-        return {"runner_state": runner_state, "metrics": metric}
+        return update_state, traj_batch
+        # return {"runner_state": runner_state, "metrics": metric}
 
     return train
 
+def main(env_config, buf_config, ppo_config, seed):
+    from agent import naive_bid_agent, random_factory_agent
+    from models import NaiveActorCritic
+
+    rng = jax.random.PRNGKey(seed)
+    rng, _rng = jax.random.split(rng)
+    train = make_train(env_config, buf_config, ppo_config, NaiveActorCritic, naive_bid_agent, random_factory_agent, _rng)
+    train(rng)
+
 
 if __name__ == "__main__":
-    config = Config(
-        
-    )
-    rng = jax.random.PRNGKey(30)
-    train_jit = jax.jit(make_train(config))
-    out = train_jit(rng)
+    env_config = EnvConfig()
+    buf_config = JuxBufferConfig(MAX_N_UNITS=1000)
+    ppo_config = PPOConfig
+    
+    prng_seed = 42
+
+    main(env_config, buf_config, ppo_config, prng_seed)
