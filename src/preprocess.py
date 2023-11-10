@@ -112,11 +112,6 @@ class Feature(NamedTuple):
     local_feature: Array
     global_feature: Array
 
-    def to_whole_feature(self):
-        return jnp.concatenate([
-            jnp.broadcast_to(self.global_feature[None, None,...], (MAP_SIZE, MAP_SIZE, self.global_feature.shape[-1])),
-            self.local_feature
-        ], axis=-1, dtype=jnp.float32)
 
 def get_feature(state: State) -> Feature:
     """
@@ -133,7 +128,7 @@ def get_feature(state: State) -> Feature:
         factory_feature_map,
         board_feature_map,
         ], axis=-1, dtype=jnp.float32)
-    return Feature(local_feature, global_feature)
+    return ObsSpace(local_feature, global_feature)
 
 def get_feature_split_global(state: State) -> ObsSpace:
     unit_feature_map = get_unit_feature(state)
