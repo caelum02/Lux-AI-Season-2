@@ -39,7 +39,7 @@ def to_board(pos, unit_info):
     return out
 
 @partial(vmap, in_axes=0, out_axes=-2) # team axis
-def to_board_for(pos: jnp.ndarray, unit_info: jnp.ndarray):
+def to_board_for(pos: Array, unit_info: Array):
     map = jnp.zeros((MAP_SIZE, MAP_SIZE, unit_info.shape[-1]))
     def _to_board_i(i, map):
         loc = pos[i]

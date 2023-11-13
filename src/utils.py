@@ -175,7 +175,7 @@ def print_action_queue(array):
         print(f"{i}: {format_action_vec(a)}")
 
 @jit
-def get_water_info(state: State) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+def get_water_info(state: State) -> tuple[Array, Array, Array]:
         """
         Run flood fill algorithm to color cells. All cells to be watered by the
         same factory will have the same color.

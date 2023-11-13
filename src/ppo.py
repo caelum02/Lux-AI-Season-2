@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from jax import Array
 import optax
 from typing import NamedTuple
 from flax.training.train_state import TrainState
@@ -32,11 +33,11 @@ class PPOConfig(NamedTuple):
 
 
 class Trajectory(NamedTuple):
-    done: jnp.ndarray
-    action: jnp.ndarray
-    value: jnp.ndarray
-    reward: jnp.ndarray
-    log_prob: jnp.ndarray
+    done: Array
+    action: Array
+    value: Array
+    reward: Array
+    log_prob: Array
     obs: ObsSpace
 
 class RunnerState(NamedTuple):
@@ -78,7 +79,6 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
     def train(rng):
         batch_env = JuxEnvBatch(env_config, buf_config)
         num_envs = ppo_config.N_ENVS
-
 
         # Initialize network
         rng, _rng = jax.random.split(rng)
@@ -122,7 +122,7 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
             def _factory_placement_step(i, env_state_rng):
                 env_state, rng = env_state_rng
                 rng, _rng = jax.random.split(rng)
-                factory_placement = agent.random_factory_agent_batched(env_state, _rng)
+                factory_placement = factory_placement_agent(env_state, _rng)
                 env_state, _ = batch_env.step_factory_placement(env_state, *factory_placement)
                 return env_state, rng
 
@@ -134,13 +134,8 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
                 train_state, env_state, feature, rng = runner_state
 
                 # SELECT ACTION
-                # TODO: Check if get_feature is vectorized
-                action, value = network.apply(train_state.params, feature)
-
-                rng, _rng = jax.random.split(rng)
-                action = pi.sample(seed=_rng)
-                log_prob = pi.log_prob(action)
-
+                action, log_prob, value = network.apply(train_state.params, feature)
+                
                 # STEP ENV
                 env_state, (_, reward, done, _) = env_state.late_game_step(env_state, action)
                 transition = Trajectory(
@@ -162,7 +157,7 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
         rng, _rng = jax.random.split(rng)
         update_state = UpdateState(train_state, _rng)
         update_state, traj_batch = jax.lax.scan(
-            _update_step, update_state, None, n_updates
+            _update_step, update_state, None, num_updates
         )
         return update_state, traj_batch
         # return {"runner_state": runner_state, "metrics": metric}
