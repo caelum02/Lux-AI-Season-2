@@ -302,3 +302,6 @@ def get_water_info(state: State) -> tuple[Array, Array, Array]:
         grow_lichen_size = cmp_cnt[state.factories.pos.x, state.factories.pos.y] - 9  # int[2, F]
 
         return color, grow_lichen_size, connected_lichen_size
+
+
+StateSkeleton = State(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)

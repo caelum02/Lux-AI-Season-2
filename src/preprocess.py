@@ -13,7 +13,7 @@ from functools import partial
 from typing import NamedTuple
 from space import ObsSpace
 
-from utils import replay_run_early_phase, replay_run_n_late_game_step, get_water_info, UnitCargo
+from utils import StateSkeleton, replay_run_early_phase, replay_run_n_late_game_step, get_water_info, UnitCargo
 from constants import *
 
 
@@ -38,6 +38,8 @@ def to_board(pos, unit_info):
 
     return out
 
+
+@partial(vmap, in_axes=0, out_axes=0) # batch axis
 @partial(vmap, in_axes=0, out_axes=-2) # team axis
 def to_board_for(pos: Array, unit_info: Array):
     map = jnp.zeros((MAP_SIZE, MAP_SIZE, unit_info.shape[-1]))
@@ -47,7 +49,7 @@ def to_board_for(pos: Array, unit_info: Array):
     map = jax.lax.fori_loop(0, pos.shape[0], _to_board_i, map)
     return map
 
-def get_unit_feature(state: State)->Array:
+def get_unit_feature(states: State)->Array:
     '''
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 24])
@@ -55,7 +57,7 @@ def get_unit_feature(state: State)->Array:
         feature: [light_existence, heavy_existence, (current) ice, ore, water, metal, power, (cargo empty space) ice, ore, water, metal, power]
     ''' 
 
-    unit_mask, unit_type, cargo, power, pos = state.unit_mask, state.units.unit_type, state.units.cargo.stock, state.units.power, state.units.pos
+    unit_mask, unit_type, cargo, power, pos = states.unit_mask, states.units.unit_type, states.units.cargo.stock, states.units.power, states.units.pos
 
     light_mask = unit_mask & (unit_type==UnitType.LIGHT)  # NOTE : is unit_mask necessary?
     heavy_mask = unit_mask & (unit_type==UnitType.HEAVY)
@@ -68,62 +70,62 @@ def get_unit_feature(state: State)->Array:
     battery_left = batttery_capacity - power
 
     feature = jnp.concatenate((unit_mask_per_type, cargo, power[...,None], cargo_left, battery_left[...,None]), axis=-1)  
-
     unit_feature_map = to_board_for(pos.pos, feature)
 
-    return unit_feature_map.reshape((MAP_SIZE, MAP_SIZE, -1))
+    return unit_feature_map.reshape((unit_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1))
 
-def get_factory_feature(state: State)->Array:
+def get_factory_feature(states: State)->Array:
     """
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 16])
     """
-    factory_mask, cargo, power, pos = state.factory_mask, state.factories.cargo.stock, state.factories.power, state.factories.pos.pos
-    _, grow_lichen_size, connected_lichen_size = get_water_info(state)
+    factory_mask, cargo, power, pos = states.factory_mask, states.factories.cargo.stock, states.factories.power, states.factories.pos.pos
+    _, grow_lichen_size, connected_lichen_size = vmap(get_water_info, in_axes=(StateSkeleton,))(states)
     water_cost = jnp.ceil(grow_lichen_size / LICHEN_WATERING_COST_FACTOR).astype(UnitCargo.dtype())
     delta_power = FACTORY_CHARGE + connected_lichen_size * POWER_PER_CONNECTED_LICHEN_TILE
     feature = jnp.concatenate((factory_mask[..., None], cargo, power[...,None], water_cost[..., None], delta_power[..., None]), axis=-1)
 
     factory_feature_map = to_board_for(pos, feature)
 
-    return factory_feature_map.reshape((MAP_SIZE, MAP_SIZE, -1))
+    return factory_feature_map.reshape((factory_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1))
 
-def get_board_feature(state: State) -> Array:
+def get_board_feature(states: State) -> Array:
     """
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, 4])
     """
-    board_feature_map = jnp.stack([state.board.lichen, state.board.map.rubble, state.board.map.ice, state.board.map.ore], axis=-1)
+    board_feature_map = jnp.stack([states.board.lichen, states.board.map.rubble, states.board.map.ice, states.board.map.ore], axis=-1)
     return board_feature_map
 
-def get_global_feature(state: State) -> Array:
-    real_env_steps = state.real_env_steps
+def get_global_feature(states: State) -> Array:
+    real_env_steps = states.real_env_steps
     cycle, turn_in_cycle = jnp.divmod(real_env_steps, CYCLE_LENGTH)
-    is_day = real_env_steps % CYCLE_LENGTH < DAY_LENGTH
+    is_day = (real_env_steps % CYCLE_LENGTH) < DAY_LENGTH
+    def lichen_score(state: State):
+        return state.team_lichen_score()
     return jnp.concatenate([
         jax.nn.one_hot(cycle, TOTAL_CYCLES),
         jax.nn.one_hot(turn_in_cycle, CYCLE_LENGTH),
         is_day[..., None],
-        state.team_lichen_score(),
+        vmap(lichen_score, in_axes=(StateSkeleton,))(states),
     ], axis=-1)
 
-
-def get_feature(state: State) -> Array:
+def get_feature(states: State) -> ObsSpace:
     """
         state: State
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, C])
     """
-    unit_feature_map = get_unit_feature(state)
-    factory_feature_map = get_factory_feature(state)
-    board_feature_map = get_board_feature(state)
-    global_feature = get_global_feature(state)
-    feature = jnp.concatenate([
+    unit_feature_map = get_unit_feature(states)
+    factory_feature_map = get_factory_feature(states)
+    board_feature_map = get_board_feature(states)
+    global_feature = get_global_feature(states)
+
+    local_feature = jnp.concatenate([
         unit_feature_map,
         factory_feature_map,
         board_feature_map,
-        jnp.broadcast_to(global_feature[None, None,...], (MAP_SIZE, MAP_SIZE, global_feature.shape[-1]))
         ], axis=-1, dtype=jnp.float32)
-    return feature
+    return ObsSpace(local_feature, global_feature)
 
 def get_feature_split_global(state: State) -> ObsSpace:
     unit_feature_map = get_unit_feature(state)
