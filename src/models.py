@@ -1,3 +1,4 @@
+import functools
 from typing import Tuple
 from jax import Array
 
@@ -41,32 +42,41 @@ class NaiveActorCritic(nn.Module):
 
         return self.empty_action, value
 
-
-
-class DecoderGruCell(nn.RNNCellBase):
+class DecoderGru(nn.Module):
     n_action_type: int = 6
     n_direction: int = 5
     n_resource_type: int = 4
 
     features: int = 256  # Size of hidden state
 
+    length: int = 10  # Max length of the sequence
+
     def setup(self):
         # The number of logits for each action type, direction, and resource type
         # +1 for EOS
         self.n_logits = self.n_action_type + self.n_direction + self.n_resource_type + 1
 
+    @functools.partial(
+        nn.scan,
+        variable_broadcast='params',
+        in_axes=1,
+        out_axes=1,
+        split_rngs={'params': False,'gru': True},
+        length=self.length,
+    )
     @nn.compact
     def __call__(
-        self, carry: Tuple[GRUCarry, Array, Array, Array], _
+        self, carry: Tuple[GRUCarry, Array], _: None
     ):
         gru_state, last_prediction = carry
         gru_state, y = nn.GRUCell(features=self.features)(gru_state, last_prediction)
 
-        y = nn.Dense(self.n_logits)(y)
+        y = nn.Dense(features=self.n_logits)(y)
 
         categorical_rng = self.make_rng('gru')
         act_type_rng, direction_rng, resource_rng, eos_rng = jax.random.split(categorical_rng, 4)
 
+        # Now split y into each seperate logits, sample and calculate log probabilities
         action_type_logits = y[:, :self.n_action_type]
         action_type_arg = jax.random.categorical(act_type_rng, action_type_logits)
         action_type = jax.nn.one_hot(
@@ -89,16 +99,29 @@ class DecoderGruCell(nn.RNNCellBase):
         resource_log_probs = jax.nn.log_softmax(y)[jnp.arange(y.shape[0]) , resource_arg]
 
         eos_p = jax.nn.sigmoid(y[:, -1])
-        eos = jax.random.bernoulli(eos_rng, eos_p)
-        eos_log_probs = jnp.log(y[:, -1])
+        eos = jax.random.bernoulli(eos_rng, eos_p).astype(jnp.float32)
+        eos_log_probs = jnp.log(eos_p * eos + (1 - eos_p) * (1 - eos))
       
-        prediction = jnp.concatenate([action_type, direction, resource_type, eos], axis=-1)
-        log_probs = jnp.concatenate([action_log_probs, direction_log_probs, resource_log_probs, eos_log_probs], axis=-1)
+        # this concatenation is essential because this one-hot encoded vectors
+        # should be fed into the next GRU cell
+        prediction = jnp.concatenate([action_type, direction, resource_type, eos[:, None]], axis=-1)
+
+        log_probs = (action_log_probs, direction_log_probs, resource_log_probs, eos_log_probs)
 
         return (gru_state, prediction), (prediction, log_probs)
 
 class ActionDecoder(nn.Module):
     hidden_size: int = 256
+    length: int = 10
+
+    n_action_type: int = 6
+    n_direction: int = 5
+    n_resource_type: int = 4
+
+    def setup(self):
+        # The number of logits for each action type, direction, and resource type
+        # +1 for EOS
+        self.n_logits = self.n_action_type + self.n_direction + self.n_resource_type + 1
 
     @nn.compact
     def __call__(self, state_embedding: Array, unit_info: Array):
@@ -106,25 +129,46 @@ class ActionDecoder(nn.Module):
         x = jnp.concatenate([state_embedding, unit_info], axis=-1)
         x = nn.Dense(features=self.hidden_size)(x)
 
-        decoder = nn.RNN(
-            DecoderGruCell(
+        decoder = DecoderGru(
                 features=self.hidden_size,
-            ),
-            split_rngs={'gru': True},
-        )
-
-        predictions, log_probs = decoder(
-            None,
-            initial_carry=x
-        )
+                n_action_type=self.n_action_type,
+                n_direction=self.n_direction,
+                n_resource_type=self.n_resource_type,
+                length=self.length
+        )        
+        
+        # Feed First GRU input with zeros, hidden state from state embedding
+        init_state = (x, jnp.zeros((x.shape[0], self.n_logits)))
+        predictions, log_probs = decoder(init_state, None)
 
         return predictions, log_probs
 
 if __name__=="__main__":
-    n_batch = 10
+    seed = 42
+    n_batch = 3
+    queue_length = 4
+
     state_embedding = jnp.zeros((n_batch, 256))
     unit_info = jnp.zeros((n_batch, 256))
 
-    action_decoder = ActionDecoder()
-    params = action_decoder.init(jax.random.PRNGKey(0), state_embedding, unit_info)
-    logits = action_decoder.apply(params, state_embedding, unit_info)
+    root_key = jax.random.PRNGKey(seed=seed)
+    key, params_key, sample_key = jax.random.split(key=root_key, num=3)
+
+    action_decoder = ActionDecoder(hidden_size=256, length=queue_length)
+    params = action_decoder.init(
+        {'params': params_key, 'gru': sample_key},
+        state_embedding, unit_info
+    )
+
+    _, (predictions, log_probs) = action_decoder.apply(params, state_embedding, unit_info, rngs={'gru': sample_key})
+    action_type_log_probs, direction_log_probs, resource_type_log_probs, eos_log_probs = log_probs
+
+    print(predictions.shape)
+    
+    for probs, name in zip(log_probs, ['action_type', 'direction', 'resource_type', 'eos']):
+        print(name)
+        print(probs.shape)
+        print("log_probs")
+        print(probs)
+        print("probs")
+        print(jnp.exp(probs))
