@@ -14,6 +14,36 @@ from space import ObsSpace, ActionSpace
 
 GRUCarry = Tuple[Array, Array]
 
+
+class CBAM(nn.Module):
+    """
+    CBAM: Convolutional Block Attention Module
+    https://arxiv.org/abs/1807.06521
+    """
+    r: int = 16
+        
+    @nn.compact
+    def __call__(self, x: Array) -> Array:
+        channels = x.shape[-1]
+        reduced_channels = channels // self.r
+        c = jnp.concatenate([
+            jnp.average(x, axis=(-3, -2)),
+            jnp.max(x, axis=(-3, -2)),
+            ], axis=-1)
+        c = nn.Dense(features=reduced_channels)(c)
+        c = nn.swish(c)
+        c = nn.Dense(features=channels)(c)
+        c = nn.sigmoid(c)
+        x = x * jnp.expand_dims(c, (-3, -2))
+        s = jnp.concatenate([
+            jnp.average(x, axis=-1, keepdims=True),
+            jnp.max(x, axis=-1, keepdims=True),
+            ], axis=-1)
+        s = nn.Conv(features=1, kernel_size=(7,7))(s)
+        s = nn.sigmoid(s)
+        x = x * s
+        return x
+
 class NaiveActorCritic(nn.Module):
     env_config: EnvConfig
     buf_config: JuxBufferConfig
@@ -31,21 +61,33 @@ class NaiveActorCritic(nn.Module):
             jnp.broadcast_to(jnp.expand_dims(xg, (1, 2)), xl.shape[:-1] + xg.shape[-1:]),
             xl,
         ], axis=-1)
-        x = nn.Conv(features=128, kernel_size=(1,1))(x)
+        x = nn.Conv(features=64, kernel_size=(1,1))(x)
         x = nn.swish(x)
+        x = CBAM()(x)
 
-        x_ = nn.Conv(features=128, kernel_size=(3,3))(x)
+        x_ = nn.Conv(features=64, kernel_size=(3,3))(x)
         x_ = nn.swish(x_)
-        x = nn.Conv(features=128, kernel_size=(3,3))(x_) + x
+        x_ = CBAM()(x_)
+        x = x_ + x
 
-        x_ = nn.Conv(features=128, kernel_size=(3,3))(x)
+        x_ = nn.Conv(features=64, kernel_size=(3,3))(x)
         x_ = nn.swish(x_)
-        x = nn.Conv(features=128, kernel_size=(3,3))(x_) + x
+        x_ = CBAM()(x_)
+        x = x_ + x
+
+        x_ = nn.Conv(features=64, kernel_size=(3,3))(x)
+        x_ = nn.swish(x_)
+        x_ = CBAM()(x_)
+        x = x_ + x
         
-        # flatten
-        x = x.reshape((x.shape[0], -1))
-        value = nn.Dense(1)(x)
+        # Global pooling (for FCN)
+        c = jnp.concatenate([
+            jnp.average(x, axis=(-3, -2)),
+            jnp.max(x, axis=(-3, -2)),
+            ], axis=-1).reshape((x.shape[0], -1))
+        value = nn.Dense(1)(c)
 
+        
         return self.empty_action, value
 
 class DecoderGru(nn.Module):
@@ -183,10 +225,11 @@ def main():
         print(jnp.exp(probs))
     
     key, params_key = jax.random.split(key)
+    key, local_key, global_key = jax.random.split(key, 3)
     actor_critic = NaiveActorCritic(env_config=EnvConfig(), buf_config=JuxBufferConfig(MAX_N_UNITS=500))
     features = ObsSpace(
-        local_feature=jnp.zeros((n_batch, 64, 64, 44)),
-        global_feature=jnp.zeros((n_batch, 73))
+        local_feature=jax.random.normal(local_key, (n_batch, 64, 64, 44)),
+        global_feature=jax.random.normal(global_key, (n_batch, 73)),
     )
     params = actor_critic.init({'params': params_key}, features)
     action, value = actor_critic.apply(params, features)
