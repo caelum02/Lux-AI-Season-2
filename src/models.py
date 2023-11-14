@@ -22,9 +22,15 @@ class NaiveActorCritic(nn.Module):
         self.empty_action = JuxAction.empty(env_cfg=self.env_config, buf_cfg=self.buf_config)
 
     @nn.compact
-    def __call__(self, x: ObsSpace):
-        x = x.board_like_feature
-
+    def __call__(self, x: ObsSpace) -> tuple[JuxAction, Array]:
+        xl = x.local_feature
+        xg = x.global_feature
+        xg = nn.Dense(features=16)(xg)
+        xg = nn.swish(xg)
+        x = jnp.concatenate([
+            jnp.broadcast_to(jnp.expand_dims(xg, (1, 2)), xl.shape[:-1] + xg.shape[-1:]),
+            xl,
+        ], axis=-1)
         x = nn.Conv(features=128, kernel_size=(1,1))(x)
         x = nn.swish(x)
 
@@ -55,6 +61,9 @@ class DecoderGru(nn.Module):
         # The number of logits for each action type, direction, and resource type
         # +1 for EOS
         self.n_logits = self.n_action_type + self.n_direction + self.n_resource_type + 1
+        self.action_type_slice = slice(0, self.n_action_type)
+        self.direction_slice = slice(self.n_action_type, self.n_action_type + self.n_direction)
+        self.resource_type_slice = slice(self.n_action_type + self.n_direction, self.n_action_type + self.n_direction + self.n_resource_type)
 
     @functools.partial(
         nn.scan,
@@ -62,7 +71,7 @@ class DecoderGru(nn.Module):
         in_axes=1,
         out_axes=1,
         split_rngs={'params': False,'gru': True},
-        length=self.length,
+        length=length,
     )
     @nn.compact
     def __call__(
@@ -77,27 +86,26 @@ class DecoderGru(nn.Module):
         act_type_rng, direction_rng, resource_rng, eos_rng = jax.random.split(categorical_rng, 4)
 
         # Now split y into each seperate logits, sample and calculate log probabilities
-        action_type_logits = y[:, :self.n_action_type]
+        action_type_logits = y[:, self.action_type_slice]
         action_type_arg = jax.random.categorical(act_type_rng, action_type_logits)
         action_type = jax.nn.one_hot(
             action_type_arg, num_classes=self.n_action_type, dtype=jnp.float32
         )
-        action_log_probs = jax.nn.log_softmax(y)[jnp.arange(y.shape[0]) , action_type_arg]
+        action_log_probs = jax.nn.log_softmax(action_type_logits)[jnp.arange(y.shape[0]) , action_type_arg]
 
-        direction_logits = y[:, self.n_action_type:self.n_action_type + self.n_direction]
+        direction_logits = y[:, self.direction_slice]
         direction_arg = jax.random.categorical(direction_rng, direction_logits)
         direction = jax.nn.one_hot(
             direction_arg, num_classes=self.n_direction, dtype=jnp.float32
         )
-        direction_log_probs = jax.nn.log_softmax(y)[jnp.arange(y.shape[0]) , direction_arg]
+        direction_log_probs = jax.nn.log_softmax(direction_logits)[jnp.arange(y.shape[0]) , direction_arg]
 
-        resource_logits = y[:, self.n_action_type + self.n_direction:]
+        resource_logits = y[:, self.resource_type_slice]
         resource_arg = jax.random.categorical(resource_rng, resource_logits)
         resource_type = jax.nn.one_hot(
             resource_arg, num_classes=self.n_resource_type, dtype=jnp.float32
         ) 
-        resource_log_probs = jax.nn.log_softmax(y)[jnp.arange(y.shape[0]) , resource_arg]
-
+        resource_log_probs = jax.nn.log_softmax(resource_logits)[jnp.arange(y.shape[0]) , resource_arg]
         eos_p = jax.nn.sigmoid(y[:, -1])
         eos = jax.random.bernoulli(eos_rng, eos_p).astype(jnp.float32)
         eos_log_probs = jnp.log(eos_p * eos + (1 - eos_p) * (1 - eos))
@@ -143,7 +151,7 @@ class ActionDecoder(nn.Module):
 
         return predictions, log_probs
 
-if __name__=="__main__":
+def main():
     seed = 42
     n_batch = 3
     queue_length = 4
@@ -151,8 +159,8 @@ if __name__=="__main__":
     state_embedding = jnp.zeros((n_batch, 256))
     unit_info = jnp.zeros((n_batch, 256))
 
-    root_key = jax.random.PRNGKey(seed=seed)
-    key, params_key, sample_key = jax.random.split(key=root_key, num=3)
+    key = jax.random.PRNGKey(seed=seed)
+    key, params_key, sample_key = jax.random.split(key=key, num=3)
 
     action_decoder = ActionDecoder(hidden_size=256, length=queue_length)
     params = action_decoder.init(
@@ -161,9 +169,10 @@ if __name__=="__main__":
     )
 
     _, (predictions, log_probs) = action_decoder.apply(params, state_embedding, unit_info, rngs={'gru': sample_key})
-    action_type_log_probs, direction_log_probs, resource_type_log_probs, eos_log_probs = log_probs
+    # action_type_log_probs, direction_log_probs, resource_type_log_probs, eos_log_probs = log_probs
 
     print(predictions.shape)
+    print(predictions[0])
     
     for probs, name in zip(log_probs, ['action_type', 'direction', 'resource_type', 'eos']):
         print(name)
@@ -172,3 +181,17 @@ if __name__=="__main__":
         print(probs)
         print("probs")
         print(jnp.exp(probs))
+    
+    key, params_key = jax.random.split(key)
+    actor_critic = NaiveActorCritic(env_config=EnvConfig(), buf_config=JuxBufferConfig(MAX_N_UNITS=500))
+    features = ObsSpace(
+        local_feature=jnp.zeros((n_batch, 64, 64, 44)),
+        global_feature=jnp.zeros((n_batch, 73))
+    )
+    params = actor_critic.init({'params': params_key}, features)
+    action, value = actor_critic.apply(params, features)
+    print("value")
+    print(value)
+
+if __name__=="__main__":
+    main()
