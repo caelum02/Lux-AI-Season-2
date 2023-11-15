@@ -9,7 +9,6 @@ import distrax
 
 from jux.actions import JuxAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
-frin 
 
 from space import ObsSpace, ActionSpace
 
@@ -113,8 +112,16 @@ class NaiveActorCritic(nn.Module):
         ))
 
         value = Critic(x)
+
+        action_feature = CBAMBackBone(name='action_backbone')(x)
+        x = nn.Conv(features=16, kernel_size=(4, 4), strides=(4, 4))(action_feature)
+        x = x.reshape((x.shape[0], -1))
+        x = nn.Dense(features=256)(x)
+
+        unit_infos = jnp.zeros((x.shape[0], 64, 256))
+        pred, log_probs = GruActionHead(name='action_head')(x, unit_infos)
         
-        return self.empty_action, value
+        return pred, log_probs, value
 
 class ActorCritic(nn.Module):
     env_config: EnvConfig

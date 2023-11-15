@@ -127,21 +127,8 @@ def get_feature(states: State) -> ObsSpace:
         ], axis=-1, dtype=jnp.float32)
     return ObsSpace(local_feature, global_feature)
 
-def get_feature_split_global(state: State) -> ObsSpace:
-    unit_feature_map = get_unit_feature(state)
-    factory_feature_map = get_factory_feature(state)
-    board_feature_map = get_board_feature(state)
-    global_feature = get_global_feature(state)
-    feature = jnp.concatenate([
-        unit_feature_map,
-        factory_feature_map,
-        board_feature_map,
-        ], axis=-1, dtype=jnp.float32)
-    return ObsSpace(feature, global_feature)
 
-batch_get_feature = vmap(get_feature_split_global)
-
-def main():
+def main_replay():
 
     MAX_N_UNITS = 200
 
@@ -154,19 +141,51 @@ def main():
     state, lux_actions = replay_run_early_phase(jux_env, state, lux_actions)
 
     state, lux_actions = replay_run_n_late_game_step(100, jux_env, state, lux_actions)    
-    unit_feature = get_unit_feature(state.unit_mask, state.units.unit_type, state.units.pos.x, state.units.pos.y)
+    local_feature, global_feature = get_feature(state)
 
-    fig, axes = plt.subplots(2, 12, figsize=(48, 8))
-    features = ['light_existence', 'heavy_existence', 'ice', 'ore', 'water', 'metal', 'power', 'ice_left', 'ore_left', 'water_left', 'metal_left', 'powerleft']
-    for i in range(2):
-        for j in range(12):
-            axes[i, j].imshow(unit_feature[i, :, :, j], cmap='gray')
-            axes[i, j].set_title(f"Player {i}, {features[j]}")
-    fig.suptitle("Unit Features")
-    plt.show()
+    print(local_feature.shape, global_feature.shape)
 
-    plt.imshow(jux_env.render(state, 'rgb_array'))
-    plt.show()
+def main():
+    from utils import get_seeds
+    from jax import random
+    from jux.env import JuxEnv, JuxEnvBatch
+    from jux.config import JuxBufferConfig, EnvConfig
+
+    from agent import naive_bid_agent, random_factory_agent_batched
+
+    N_ENV = 4
+
+    batch_env = JuxEnvBatch(EnvConfig(), JuxBufferConfig(MAX_N_UNITS=200))
+    key = random.PRNGKey(0)
+    key, subkey = random.split(key)
+    seeds = get_seeds(subkey, (N_ENV,))
+    state = batch_env.reset(seeds)
+
+    # handle bidaction
+    rng, _rng = jax.random.split(key)
+    _rng = jax.random.split(_rng, num=N_ENV)
+    bid, faction = jax.vmap(naive_bid_agent)(state, _rng)
+    state, _ = batch_env.step_bid(state, bid, faction)
+
+    print('bidaction done')
+
+     # Factory placement step
+    n_factories = state.board.factories_per_team[0].astype(jnp.int32)
+
+    def _factory_placement_step(i, env_state_rng):
+        env_state, rng = env_state_rng
+        rng, _rng = jax.random.split(rng)
+        factory_placement = random_factory_agent_batched(env_state, _rng)
+        env_state, _ = batch_env.step_factory_placement(env_state, *factory_placement)
+        return env_state, rng
+
+    rng, _rng = jax.random.split(rng)
+    state, _ = jax.lax.fori_loop(0, 2*n_factories, _factory_placement_step, (state, _rng))
+
+    local_feature, global_feature = get_feature(state)
+    print(local_feature.shape)
+    print(global_feature.shape)
+
 
 if __name__=="__main__":
     main()

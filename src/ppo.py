@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from jax import Array
+from jax import Array, tree_map
 import optax
 from typing import NamedTuple
 from flax.training.train_state import TrainState
@@ -8,8 +8,9 @@ import distrax
 
 from jux.env import JuxEnv, JuxEnvBatch
 from jux.config import JuxBufferConfig, EnvConfig
+from jux.actions import JuxAction
 
-from preprocess import get_feature, batch_get_feature
+from preprocess import get_feature
 from constants import *
 from space import ObsSpace, ActionSpace
 from utils import get_seeds
@@ -85,9 +86,10 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
         
         dummy_seeds = get_seeds(_rng, (1,))
         dummy_state = batch_env.reset(dummy_seeds)
-        feature = batch_get_feature(dummy_state)
-        network = actor_critic
-        network_params = network.init(_rng, feature)
+        feature = get_feature(dummy_state)
+        network = actor_critic(env_config=env_config, buf_config=buf_config)
+        param_rng, gru_rng = jax.random.split(rng)
+        network_params = network.init({'params': param_rng, 'gru': gru_rng}, feature)
    
         # Optimizer - clip_by_global_norm / adam
         tx = optax.chain(
@@ -130,54 +132,96 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
             env_state, _ = jax.lax.fori_loop(0, 2*n_factories, _factory_placement_step, (env_state, _rng))
 
             # Late game step
-            def _env_step(runner_state):
+            def _env_step(runner_state, _):
                 train_state, env_state, feature, rng = runner_state
 
+                rng, gru_rng = jax.random.split(rng)
                 # SELECT ACTION
-                action, log_prob, value = network.apply(train_state.params, feature)
+                action, log_prob, value = network.apply(train_state.params, feature, rngs={'gru': gru_rng})
                 
+                empty_action = JuxAction.empty(env_cfg=env_config, buf_cfg=buf_config)
+                empty_action_batch = tree_map(lambda x: jnp.broadcast_to(x, shape=(num_envs, *x.shape)), empty_action)
                 # STEP ENV
-                env_state, (_, reward, done, _) = env_state.late_game_step(env_state, action)
+                env_state, (_, reward, done, _) = batch_env.step_late_game(env_state, empty_action_batch)
+                
+                # Player 0 is the agent, Player 1 plays with null action (TODO)
+                reward = reward[0]
+                done = done[0]
+
+                feature = get_feature(env_state)
                 transition = Trajectory(
-                    done, action, value, reward, log_prob, get_feature(env_state)
+                    done, action, value, reward, log_prob, feature
                 )
                 runner_state = RunnerState(train_state, env_state, feature, rng)
                 return runner_state, transition
 
             rng, _rng = jax.random.split(rng)
-            runner_state = RunnerState(train_state, env_state, feature, _rng)
+            runner_state = RunnerState(train_state, env_state, get_feature(env_state), _rng)
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, runner_state, None, ppo_config.NUM_STEPS
+                _env_step, runner_state, None, MAX_EPISODE_LENGTH
             )
 
-            # TODO : From here 11/8
-            return UpdateState(train_state, rng), traj_batch
+            rng, _rng = jax.random.split(rng)
+            _, _, last_val = network.apply(train_state.params, runner_state.obs, rngs={'gru': _rng})
+
+            def _calculate_gae(traj_batch: Trajectory, last_val):
+                def _get_advantages(gae_and_next_value, transition):
+                    gae, next_value = gae_and_next_value
+                    done, value, reward = (
+                        transition.done,
+                        transition.value,
+                        transition.reward,
+                    )
+                    delta = reward + ppo_config.GAMMA * next_value * (1 - done) - value
+                    gae = (
+                        delta
+                        + ppo_config.GAMMA * ppo_config.GAE_LAMBDA * (1 - done) * gae
+                    )
+                    return (gae, value), gae
+
+                _, advantages = jax.lax.scan(
+                    _get_advantages,
+                    (jnp.zeros_like(last_val), last_val),
+                    traj_batch,
+                    reverse=True,
+                    unroll=16,
+                )
+                return advantages, advantages + traj_batch.value
+
+            advantages, targets = _calculate_gae(traj_batch, last_val)
+
+            return advantages, targets
 
         rng, _rng = jax.random.split(rng)
         update_state = UpdateState(train_state, _rng)
-        update_state, traj_batch = jax.lax.scan(
-            _update_step, update_state, None, num_updates
+        advantages, targets = jax.lax.scan(
+            _update_step, update_state, None, ppo_config.N_UPDATES
         )
-        return update_state, traj_batch
+        return advantages, targets
         # return {"runner_state": runner_state, "metrics": metric}
 
     return train
 
 def main(env_config, buf_config, ppo_config, seed):
-    from agent import naive_bid_agent, random_factory_agent
+    from agent import naive_bid_agent, random_factory_agent_batched
     from models import NaiveActorCritic
 
     rng = jax.random.PRNGKey(seed)
     rng, _rng = jax.random.split(rng)
-    train = make_train(env_config, buf_config, ppo_config, NaiveActorCritic, naive_bid_agent, random_factory_agent, _rng)
-    train(rng)
-
+    train = make_train(env_config, buf_config, ppo_config, NaiveActorCritic, naive_bid_agent, random_factory_agent_batched, _rng)
+    advantages, targets = train(rng)
+    print(advantages.shape)
+    print(advantages)
 
 if __name__ == "__main__":
     env_config = EnvConfig()
     buf_config = JuxBufferConfig(MAX_N_UNITS=1000)
-    ppo_config = PPOConfig
+    ppo_config = PPOConfig(
+        N_UPDATES=10,
+        N_ENVS=4,
+        N_EPISODES_PER_ENV=4,
+    )
     
     prng_seed = 42
 
