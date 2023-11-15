@@ -7,8 +7,9 @@ import jax.numpy as jnp
 import jax
 import distrax
 
-from jux.actions import JuxAction
+from jux.actions import JuxAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
+frin 
 
 from space import ObsSpace, ActionSpace
 
@@ -143,7 +144,7 @@ class DecoderGruCell(nn.Module):
     def __call__(
         self, carry: Tuple[GRUCarry, Array], _: None
     ):
-        gru_state, last_prediction = carry
+        gru_state, last_prediction, prev_eos = carry
         gru_state, y = nn.GRUCell(features=self.features)(gru_state, last_prediction)
 
         y = nn.Dense(features=self.n_logits)(y)
@@ -154,11 +155,11 @@ class DecoderGruCell(nn.Module):
         # Now split y into each seperate logits, sample and calculate log probabilities
         action_type_logits = y[..., self.action_type_slice]
         action_type_dist = distrax.Categorical(logits=action_type_logits)
-        action_type_args = action_type_dist.sample(seed=act_type_rng)
+        action_type_arg = action_type_dist.sample(seed=act_type_rng)
         action_type = jax.nn.one_hot(
-            action_type_args, num_classes=self.n_action_type, dtype=jnp.float32
+            action_type_arg, num_classes=self.n_action_type, dtype=jnp.float32
         )
-        action_log_probs = action_type_dist.log_prob(action_type_args)
+        action_type_log_probs = action_type_dist.log_prob(action_type_arg)
 
         direction_logits = y[..., self.direction_slice]
         direction_dist = distrax.Categorical(direction_logits)
@@ -184,9 +185,20 @@ class DecoderGruCell(nn.Module):
         # should be fed into the next GRU cell
         prediction = jnp.concatenate([action_type, direction, resource_type, eos[..., None]], axis=-1)
 
-        log_probs = (action_log_probs, direction_log_probs, resource_type_log_probs, eos_log_probs)
+        direction_mask = (action_type_arg == UnitActionType.MOVE) | \
+            action_type_arg == UnitActionType.TRANSFER
+        resource_type_mask = (action_type_arg == UnitActionType.TRANSFER) | \
+            (action_type_arg == UnitActionType.PICKUP)
+        
+        # Mask out the log probabilities for the infos that are not used
+        mask_sum_log_prob = action_type_log_probs + direction_mask * direction_log_probs + \
+            resource_type_mask * resource_type_log_probs
 
-        return (gru_state, prediction), (prediction, log_probs)
+        log_prob = (1-prev_eos) * (eos_log_probs + (1-eos) * mask_sum_log_prob)
+
+        curr_eos = prev_eos + eos * (1 - prev_eos)
+      
+        return (gru_state, prediction, curr_eos), (prediction, log_prob,)
 
 class GruActionHead(nn.Module):
     hidden_size: int = 256
@@ -242,7 +254,7 @@ class GruActionHead(nn.Module):
         # Feed First GRU input with zeros, hidden state from state embedding
         input_shape = (*x.shape[:-1], self.length, self.n_logits)
         dummy_input = jnp.empty(shape=input_shape)
-        init_carry = (x, dummy_input[..., 0, :])
+        init_carry = (x, dummy_input[..., 0, :], jnp.zeros(shape=x.shape[:2]))
         predictions, log_probs = decoder(init_carry, dummy_input)
 
         return predictions, log_probs
