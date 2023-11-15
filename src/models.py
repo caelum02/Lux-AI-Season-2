@@ -9,6 +9,7 @@ import distrax
 
 from jux.actions import JuxAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
+from jux.state import State
 
 from space import ObsSpace, ActionSpace
 
@@ -126,11 +127,17 @@ class NaiveActorCritic(nn.Module):
 class ActorCritic(nn.Module):
     env_config: EnvConfig
     buf_config: JuxBufferConfig
+    gru_hidden_size: int = 256
+    queue_length: int = 10
 
     @nn.compact
     def __call__(self, x: ObsSpace) -> tuple[JuxAction, Array]:
-        raise NotImplementedError
-    
+        states: State = x.states
+        x = CBAMBackBone()(x)
+        value = PoolCriticHead()(x)
+        gruActionHead = GruActionHead(hidden_size=self.gru_hidden_size, length=self.queue_length)
+        # NOTE WIP
+        return None, value
 
 class DecoderGruCell(nn.Module):
     n_action_type: int = 6
@@ -230,7 +237,7 @@ class GruActionHead(nn.Module):
         """
 
         # Concatenate the state embedding and unit information
-        n_unit = unit_info.shape[1]
+        # n_unit = unit_info.shape[1]
 
         state_embedding_broadcasted = jnp.broadcast_to(
             jnp.expand_dims(state_embedding, axis=1), 
@@ -243,6 +250,7 @@ class GruActionHead(nn.Module):
             axis=-1
         )
         init_carry = nn.Dense(features=self.hidden_size)(x)
+        init_carry = nn.swish(init_carry)
 
         DecoderGru = nn.scan(
             DecoderGruCell, variable_broadcast='params', 
@@ -259,9 +267,9 @@ class GruActionHead(nn.Module):
         )
         
         # Feed First GRU input with zeros, hidden state from state embedding
-        input_shape = (*x.shape[:-1], self.length, self.n_logits)
+        input_shape = (*init_carry.shape[:-1], self.length, self.n_logits)
         dummy_input = jnp.empty(shape=input_shape)
-        init_carry = (x, dummy_input[..., 0, :], jnp.zeros(shape=x.shape[:2]))
+        init_carry = (init_carry, jnp.zeros((*init_carry.shape[:-1], self.n_logits)), jnp.zeros(shape=x.shape[:2]))
         predictions, log_probs = decoder(init_carry, dummy_input)
 
         return predictions, log_probs
@@ -293,18 +301,6 @@ def main():
     key, subkey1, subkey2 = jax.random.split(key, num=3)
     state_embedding = jax.random.normal(subkey1, (n_batch, 1, 256))
     unit_info = jax.random.normal(subkey2, (n_batch, 256))
-    
-    key, params_key = jax.random.split(key)
-    key, local_key, global_key = jax.random.split(key, 3)
-    actor_critic = NaiveActorCritic(env_config=EnvConfig(), buf_config=JuxBufferConfig(MAX_N_UNITS=500))
-    features = ObsSpace(
-        local_feature=jax.random.normal(local_key, (n_batch, 64, 64, 44)),
-        global_feature=jax.random.normal(global_key, (n_batch, 73)),
-    )
-    params = actor_critic.init({'params': params_key}, features)
-    action, value = actor_critic.apply(params, features)
-    print("value")
-    print(value)
 
 if __name__=="__main__":
     main()

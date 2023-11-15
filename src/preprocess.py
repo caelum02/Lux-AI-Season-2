@@ -6,14 +6,14 @@ from jux.state import State
 
 import jax
 import jax.numpy as jnp
-from jax import vmap, jit
+from jax import tree_map, vmap, jit
 from jax import Array
 
 from functools import partial
 from typing import NamedTuple
 from space import ObsSpace
 
-from utils import StateSkeleton, replay_run_early_phase, replay_run_n_late_game_step, get_water_info, UnitCargo
+from utils import StateSkeleton, flip_states, replay_run_early_phase, replay_run_n_late_game_step, get_water_info, UnitCargo
 from constants import *
 
 
@@ -72,7 +72,7 @@ def get_unit_feature(states: State)->Array:
     feature = jnp.concatenate((unit_mask_per_type, cargo, power[...,None], cargo_left, battery_left[...,None]), axis=-1)  
     unit_feature_map = to_board_for(pos.pos, feature)
 
-    return unit_feature_map.reshape((unit_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1))
+    return unit_feature_map
 
 def get_factory_feature(states: State)->Array:
     """
@@ -87,7 +87,7 @@ def get_factory_feature(states: State)->Array:
 
     factory_feature_map = to_board_for(pos, feature)
 
-    return factory_feature_map.reshape((factory_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1))
+    return factory_feature_map
 
 def get_board_feature(states: State) -> Array:
     """
@@ -116,7 +116,9 @@ def get_feature(states: State) -> ObsSpace:
         output: ShapedArray(int8[MAP_SIZE, MAP_SIZE, C])
     """
     unit_feature_map = get_unit_feature(states)
+    unit_feature_map = unit_feature_map.reshape((unit_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1))
     factory_feature_map = get_factory_feature(states)
+    factory_feature_map = factory_feature_map.reshape((factory_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1))
     board_feature_map = get_board_feature(states)
     global_feature = get_global_feature(states)
 
@@ -125,7 +127,27 @@ def get_feature(states: State) -> ObsSpace:
         factory_feature_map,
         board_feature_map,
         ], axis=-1, dtype=jnp.float32)
-    return ObsSpace(local_feature, global_feature)
+    return ObsSpace(local_feature, global_feature, states)
+
+def get_feature_teams(states: State)-> tuple[ObsSpace, ObsSpace]:
+    unit_feature_map = get_unit_feature(states)
+    factory_feature_map = get_factory_feature(states)
+    board_feature_map = get_board_feature(states)
+    global_feature = get_global_feature(states)
+
+    local_feature = jnp.concatenate([
+        unit_feature_map.reshape((unit_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1)),
+        factory_feature_map.reshape((factory_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1)),
+        board_feature_map,
+        ], axis=-1, dtype=jnp.float32)
+    
+    global_feature2 = global_feature.at[:, [-1, -2]].set(global_feature[:, [-2, -1]])
+    local_feature2 = jnp.concatenate([
+        jnp.flip(unit_feature_map, -2).reshape((unit_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1)),
+        jnp.flip(factory_feature_map, -2).reshape((factory_feature_map.shape[0], MAP_SIZE, MAP_SIZE, -1)),
+        board_feature_map,
+        ], axis=-1, dtype=jnp.float32)
+    return ObsSpace(local_feature, global_feature, states), ObsSpace(local_feature2, global_feature2, flip_states(states))
 
 
 def main_replay():

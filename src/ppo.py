@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from jax import Array, tree_map
+from jax import Array, jit, tree_map
 import optax
 from typing import NamedTuple
 from flax.training.train_state import TrainState
@@ -8,12 +8,14 @@ import distrax
 
 from jux.env import JuxEnv, JuxEnvBatch
 from jux.config import JuxBufferConfig, EnvConfig
+from jux.state import State
 from jux.actions import JuxAction
+from jux.unit_cargo import ResourceType
 
 from preprocess import get_feature
 from constants import *
 from space import ObsSpace, ActionSpace
-from utils import get_seeds
+from utils import StateSkeleton, get_seeds
 
 
 class PPOConfig(NamedTuple):
@@ -86,10 +88,10 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
         
         dummy_seeds = get_seeds(_rng, (1,))
         dummy_state = batch_env.reset(dummy_seeds)
-        feature = get_feature(dummy_state)
+        dummy_feature = get_feature(dummy_state)
         network = actor_critic(env_config=env_config, buf_config=buf_config)
-        param_rng, gru_rng = jax.random.split(rng)
-        network_params = network.init({'params': param_rng, 'gru': gru_rng}, feature)
+        rng, param_rng, gru_rng = jax.random.split(rng, 3)
+        network_params = network.init({'params': param_rng, 'gru': gru_rng}, dummy_feature)
    
         # Optimizer - clip_by_global_norm / adam
         tx = optax.chain(
@@ -110,18 +112,19 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
             # Initialize env_state
             rng, _rng = jax.random.split(rng)
             seeds = get_seeds(_rng, (num_envs,))
-            env_state = batch_env.reset(seeds)
+            env_state: State = batch_env.reset(seeds)
 
             # Bidding step
             rng, _rng = jax.random.split(rng)
             _rng = jax.random.split(_rng, num=num_envs)
-            bid, faction = jax.vmap(bid_agent)(env_state, _rng)
+            bid, faction = jax.vmap(bid_agent)(env_state, _rng)  # TODO vmap works? StateSkeleton trick maybe needed
             env_state, _ = batch_env.step_bid(env_state, bid, faction)
 
             # Factory placement step
             n_factories = env_state.board.factories_per_team[0].astype(jnp.int32)
+            # guaranteed to be same for all envs
 
-            def _factory_placement_step(i, env_state_rng):
+            def _factory_placement_step(_, env_state_rng):
                 env_state, rng = env_state_rng
                 rng, _rng = jax.random.split(rng)
                 factory_placement = factory_placement_agent(env_state, _rng)
@@ -138,13 +141,18 @@ def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: P
                 rng, gru_rng = jax.random.split(rng)
                 # SELECT ACTION
                 action, log_prob, value = network.apply(train_state.params, feature, rngs={'gru': gru_rng})
-                
+                # TODO convert this action into jux action
                 empty_action = JuxAction.empty(env_cfg=env_config, buf_cfg=buf_config)
                 empty_action_batch = tree_map(lambda x: jnp.broadcast_to(x, shape=(num_envs, *x.shape)), empty_action)
+                
                 # STEP ENV
                 env_state, (_, reward, done, _) = batch_env.step_late_game(env_state, empty_action_batch)
-                
+
                 # Player 0 is the agent, Player 1 plays with null action (TODO)
+                env_state = env_state._replace(
+                    factories=env_state.factories._replace(
+                        cargo=env_state.factories.cargo._replace(
+                            stock=env_state.factories.cargo.stock.at[:, 1, :, 2].set(env_state.factory_mask[:, 1, :] * 50))))
                 reward = reward[0]
                 done = done[0]
 
@@ -210,6 +218,7 @@ def main(env_config, buf_config, ppo_config, seed):
     rng = jax.random.PRNGKey(seed)
     rng, _rng = jax.random.split(rng)
     train = make_train(env_config, buf_config, ppo_config, NaiveActorCritic, naive_bid_agent, random_factory_agent_batched, _rng)
+    train = jit(train)
     advantages, targets = train(rng)
     print(advantages.shape)
     print(advantages)

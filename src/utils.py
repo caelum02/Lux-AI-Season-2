@@ -305,3 +305,11 @@ def get_water_info(state: State) -> tuple[Array, Array, Array]:
 
 
 StateSkeleton = State(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+
+@jit
+def flip_states(states):
+    return tree_map(lambda a: jnp.flip(a, axis=1) if a.ndim > 1 and a.shape[1] == 2 else a, states)
+
+@jit
+def flip_state(states):
+    return tree_map(lambda a: jnp.flip(a, axis=0) if a.ndim > 0 and a.shape[0] == 2 else a, states)
