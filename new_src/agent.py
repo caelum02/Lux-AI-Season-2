@@ -15,8 +15,8 @@ class Agent():
 
         self.units_master_factory = dict() # unit_id -> factory_id
 
-        self.robots_ice_factory = dict() # factory_id -> {unit_id: unit}
-        self.robots_ore_factory = dict() # factory_id -> {unit_id: unit}
+        self.robots_ice_factory = dict() # factory_id -> unit_id
+        self.robots_ore_factory = dict() # factory_id -> unit_id
 
     def early_setup(self, step: int, obs, remainingOverageTime: int = 60):
         if step == 0:
@@ -77,32 +77,28 @@ class Agent():
 
     def _initialize_robot_bindings(self, factories):
         for factory_id in factories.keys():
-            self.robots_ice_factory[factory_id] = dict()
-            self.robots_ore_factory[factory_id] = dict()
+            self.robots_ice_factory[factory_id] = list()
+            self.robots_ore_factory[factory_id] = list()
 
     @staticmethod
-    def _num_robot_type_from_list(robot_dict, robot_type):
-        num_robots = 0
-        for unit_id, unit in robot_dict.items():
-            if unit.unit_type == robot_type:
-                num_robots += 1
-        return num_robots
+    def _num_robot_type_from_list(robot_list, robot_type, units):
+        return sum([1 for unit_id in robot_list if units[unit_id].unit_type == robot_type])
     
     
-    def num_lights_ore_factory(self, factory_id):
-        return self._num_robot_type_from_list(self.robots_ore_factory[factory_id], "LIGHT")
+    def num_lights_ore_factory(self, factory_id, units):
+        return self._num_robot_type_from_list(self.robots_ore_factory[factory_id], "LIGHT", units)
 
     
-    def num_heavies_ore_factory(self, factory_id):
-        return self._num_robot_type_from_list(self.robots_ore_factory[factory_id], "HEAVY")
+    def num_heavies_ore_factory(self, factory_id, units):
+        return self._num_robot_type_from_list(self.robots_ore_factory[factory_id], "HEAVY", units)
     
     
-    def num_lights_ice_factory(self, factory_id):
-        return self._num_robot_type_from_list(self.robots_ice_factory[factory_id], "LIGHT")
+    def num_lights_ice_factory(self, factory_id, units):
+        return self._num_robot_type_from_list(self.robots_ice_factory[factory_id], "LIGHT", units)
     
     
-    def num_heavies_ice_factory(self, factory_id):
-        return self._num_robot_type_from_list(self.robots_ice_factory[factory_id], "HEAVY")
+    def num_heavies_ice_factory(self, factory_id, units):
+        return self._num_robot_type_from_list(self.robots_ice_factory[factory_id], "HEAVY", units)
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         """
@@ -132,6 +128,14 @@ class Agent():
         ore_map = game_state.board.ore
         ore_tile_locations = np.argwhere(ore_map == 1)
 
+        # Remove robots from factories if they are dead
+        for factory_id, factory in factories.items():
+            for robot_list in [self.robots_ice_factory[factory_id], self.robots_ore_factory[factory_id]]:
+                for unit_id in list(robot_list):
+                    if not unit_id in units:
+                        robot_list.remove(unit_id)
+                        del self.units_master_factory[unit_id]
+
         # Register robots to factories if not registered
         for unit_id, unit in units.items():
             if not unit_id in self.units_master_factory:
@@ -142,37 +146,37 @@ class Agent():
                 
                 # Allocate robot
                 if unit.unit_type == "LIGHT":
-                    if self.num_lights_ice_factory(factory_id) < self.num_lights_ore_factory(factory_id):
-                        self.robots_ice_factory[factory_id][unit_id] = unit
+                    if self.num_lights_ice_factory(factory_id, units) <= self.num_lights_ore_factory(factory_id, units):
+                        self.robots_ice_factory[factory_id].append(unit_id)
                     else:
-                        self.robots_ore_factory[factory_id][unit_id] = unit
+                        self.robots_ore_factory[factory_id].append(unit_id)
+                elif unit.unit_type == "HEAVY":
+                    if self.num_heavies_ice_factory(factory_id, units) <= self.num_heavies_ore_factory(factory_id, units):
+                        self.robots_ice_factory[factory_id].append(unit_id)
+                    else:
+                        self.robots_ore_factory[factory_id].append(unit_id)
                 else:
-                    if self.num_heavies_ice_factory(factory_id) < self.num_heavies_ore_factory(factory_id):
-                        self.robots_ice_factory[factory_id][unit_id] = unit
-                    else:
-                        self.robots_ore_factory[factory_id][unit_id] = unit
-        
-        # Remove robots from factories if they are dead
-        for factory_id, factory in factories.items():
-            for robot_dict in [self.robots_ice_factory[factory_id], self.robots_ore_factory[factory_id]]:
-                for unit_id, unit in list(robot_dict.items()):
-                    if not unit_id in units:
-                        del robot_dict[unit_id]
-                        del self.units_master_factory[unit_id]
-  
+                    raise ValueError("Unknown unit type")        
+
         # handle action of robots bound to factories
         for factory_id, factory in factories.items():
+
+            # will implicitly handle robot reallocation
+            ice_robots = self.robots_ice_factory[factory_id].copy()
+            ore_robots = self.robots_ore_factory[factory_id].copy()
+
             # handle robots adding ice to factory
-            for unit_id, unit in self.robots_ice_factory[factory_id].items():
-                
+            for unit_id in ice_robots:
+                unit = units[unit_id]    
                 adjacent_to_factory = norm(factory.pos - unit.pos, ord=np.inf) <= 1
                 ice_threshold = 40
                 # previous ice mining code
                 if adjacent_to_factory and unit.power < unit.unit_cfg.INIT_POWER:
                     actions[unit_id] = [unit.pickup(4, unit.unit_cfg.BATTERY_CAPACITY, repeat=0, n=1)]
+
                     # 4 means power
                 elif unit.cargo.ice < ice_threshold:
-                    ice_tile_distances = norm(ice_tile_locations - unit.pos, ord=1, axis=1)
+                    ice_tile_distances = np.linalg.norm(ice_tile_locations - unit.pos, ord=1, axis=1)
                     closest_ice_tile = ice_tile_locations[np.argmin(ice_tile_distances)]
                     if np.all(closest_ice_tile == unit.pos):
                         if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(game_state):
@@ -188,6 +192,10 @@ class Agent():
                     if adjacent_to_factory:
                         if unit.power >= unit.action_queue_cost(game_state):
                             actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
+
+                            # Reallocate robot
+                            self.robots_ice_factory[factory_id].remove(unit_id)
+                            self.robots_ore_factory[factory_id].append(unit_id)
                         
                     else:
                         move_cost = unit.move_cost(game_state, direction)
@@ -195,8 +203,9 @@ class Agent():
                             actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
             
             # handle robots adding ore to factory
-            for unit_id, unit in self.robots_ore_factory[factory_id].items():
-                adjacent_to_factory = norm(factory.pos - unit.pos, ord=np.inf) <= 1
+            for unit_id in ore_robots:
+                unit = units[unit_id]
+                adjacent_to_factory = np.linalg.norm(factory.pos - unit.pos, ord=np.inf) <= 1
                 ore_threshold = 40
                 # previous ore mining code
                 if adjacent_to_factory and unit.power < unit.unit_cfg.INIT_POWER:
@@ -218,7 +227,11 @@ class Agent():
                     direction = direction_to(unit.pos, factory.pos)
                     if adjacent_to_factory:
                         if unit.power >= unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ore, repeat=0, n=1)]
+                            actions[unit_id] = [unit.transfer(direction, 1, unit.cargo.ore, repeat=0, n=1)]
+                            
+                            # Reallocate robot
+                            self.robots_ore_factory[factory_id].remove(unit_id)
+                            self.robots_ice_factory[factory_id].append(unit_id)
                         
                     else:
                         move_cost = unit.move_cost(game_state, direction)
@@ -226,19 +239,21 @@ class Agent():
                             actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
 
             # handle factory action
-            n_lights = self.num_lights_ore_factory(factory_id) + self.num_lights_ice_factory(factory_id)
-            n_heavies = self.num_heavies_ore_factory(factory_id) + self.num_heavies_ice_factory(factory_id)
+            n_lights = self.num_lights_ore_factory(factory_id, units) + self.num_lights_ice_factory(factory_id, units)
+            n_heavies = self.num_heavies_ore_factory(factory_id, units) + self.num_heavies_ice_factory(factory_id, units)
 
             # if factory can manage current water usage, then water
             if factory.cargo.water > 500:
                 actions[factory_id] = factory.water()
 
             else: # or build robots
-                if n_lights > n_heavies * 10 and factory.can_build_heavy(game_state):
+                if factory.can_build_heavy(game_state):
                     actions[factory_id] = factory.build_heavy()
+                # if n_lights > n_heavies * 10 and factory.can_build_heavy(game_state):
+                #   actions[factory_id] = factory.build_heavy()
 
-                elif n_lights <= n_heavies * 8 and factory.can_build_light(game_state):
-                    actions[factory_id] = factory.build_light()
+                # elif n_lights <= n_heavies * 4 and factory.can_build_light(game_state):
+                #     actions[factory_id] = factory.build_light()
 
         return actions
 
@@ -261,9 +276,9 @@ def conv2d(a, f, pad='zero', n=1):
     return a
 
 
-def main(env, agents, steps):
+def main(env, agents, steps, seeds):
     # reset our env
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=42)
     np.random.seed(0)
 
     step = 0
@@ -298,4 +313,4 @@ if __name__=='__main__':
     from luxai_s2.env import LuxAI_S2
     env = LuxAI_S2() # create the environment object
     agents = {player: Agent(player, env.state.env_cfg) for player in ['player_0', 'player_1']}
-    main(env, agents, 100)
+    main(env, agents, 100, 101)
