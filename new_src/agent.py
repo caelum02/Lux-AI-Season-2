@@ -24,12 +24,18 @@ class Agent():
                 self.factory_score = np.zeros((map_size, map_size))
                 self.factory_score += conv2d(game_state.board.rubble, average_kernel(5), n=3) * 0.05
                 ice_tile_locations = np.argwhere(game_state.board.ice.T == 1)
+                ore_tile_locations = np.argwhere(game_state.board.ore.T == 1)
                 all_locations = np.mgrid[:map_size, :map_size].swapaxes(0, 2).reshape(-1, 2)
-                distances = np.linalg.norm(np.expand_dims(all_locations, 1) - np.expand_dims(ice_tile_locations, 0), ord=1, axis=-1)
-                distances = np.min(distances, axis=-1)
-                distances = distances.reshape(map_size, map_size)
+                ice_distances = np.linalg.norm(np.expand_dims(all_locations, 1) - np.expand_dims(ice_tile_locations, 0), ord=1, axis=-1)
+                ice_distances = np.min(ice_distances, axis=-1)
+                ice_distances = ice_distances.reshape(map_size, map_size)
+
+                ore_distances = np.linalg.norm(np.expand_dims(all_locations, 1) - np.expand_dims(ore_tile_locations, 0), ord=1, axis=-1)
+                ore_distances = np.min(ore_distances, axis=-1)
+                ore_distances = ore_distances.reshape(map_size, map_size)
+
                 # distances[x][y] is the distance to the nearest ice tile 
-                self.factory_score += np.clip(distances-3, a_min=0, a_max=None)
+                self.factory_score += np.clip(ice_distances-3, a_min=0, a_max=None) + np.clip(ore_distances-3, a_min=0, a_max=None) * 0.3
 
                 plt.imshow(self.factory_score, cmap="gray", norm=plt.Normalize(vmin=0, vmax=20, clip=True))
                 plt.show()
@@ -80,8 +86,11 @@ class Agent():
         units = game_state.units[self.player]
         ice_map = game_state.board.ice
         ice_tile_locations = np.argwhere(ice_map == 1)
+
+
+
         for unit_id, unit in units.items():
-            
+
             # track the closest factory
             closest_factory = None
             adjacent_to_factory = False
