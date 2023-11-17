@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 from lux.kit import obs_to_game_state, GameState, EnvConfig
 from lux.utils import direction_to, my_turn_to_place_factory
 import numpy as np
@@ -21,14 +22,18 @@ class Agent():
             if self.factory_score is None:
                 map_size = self.env_cfg.map_size
                 self.factory_score = np.zeros((map_size, map_size))
-                self.factory_score += conv2d(game_state.board.rubble, average_kernel(5), n=3)
-                ice_tile_locations = np.argwhere(game_state.board.ice == 1)
+                self.factory_score += conv2d(game_state.board.rubble, average_kernel(5), n=3) * 0.05
+                ice_tile_locations = np.argwhere(game_state.board.ice.T == 1)
                 all_locations = np.mgrid[:map_size, :map_size].swapaxes(0, 2).reshape(-1, 2)
                 distances = np.linalg.norm(np.expand_dims(all_locations, 1) - np.expand_dims(ice_tile_locations, 0), ord=1, axis=-1)
                 distances = np.min(distances, axis=-1)
                 distances = distances.reshape(map_size, map_size)
                 # distances[x][y] is the distance to the nearest ice tile 
-                self.factory_score += distances
+                self.factory_score += np.clip(distances-3, a_min=0, a_max=None)
+
+                plt.imshow(self.factory_score, cmap="gray", norm=plt.Normalize(vmin=0, vmax=20, clip=True))
+                plt.show()
+                
             
             # how much water and metal you have in your starting pool to give to new factories
             water_left = game_state.teams[self.player].water
@@ -39,10 +44,15 @@ class Agent():
             # whether it is your turn to place a factory
             my_turn_to_place = my_turn_to_place_factory(game_state.teams[self.player].place_first, step)
             if factories_to_place > 0 and my_turn_to_place:
-                # we will spawn our factory in a random location with 150 metal and water if it is our turn to place
+                # Build factory at the position with the lowest factory_score
                 factory_score = self.factory_score + (obs["board"]["valid_spawns_mask"] == 0) * 1e9
+                
+                plt.imshow(factory_score, cmap="gray", norm=plt.Normalize(vmin=0, vmax=20, clip=True))
+                plt.show()
+
                 spawn_loc = np.argmin(factory_score)
                 map_size = self.env_cfg.map_size
+                
                 spawn_loc = np.array([spawn_loc // map_size, spawn_loc % map_size])
                 return dict(spawn=spawn_loc, metal=150, water=150)
             return dict()
@@ -102,3 +112,21 @@ class Agent():
                         if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
                             actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
         return actions
+
+
+def average_kernel(size):
+    return np.ones((size, size)) / (size * size)
+
+def conv2d(a, f, pad='zero', n=1):
+    if pad == 'zero':
+        pad = (f.shape[0] - 1) // 2
+
+    strd = np.lib.stride_tricks.as_strided
+    a = np.pad(a, pad)
+    s = f.shape + tuple(np.subtract(a.shape, f.shape) + 1)
+    for i in range(n):
+        if i > 0:
+            a = np.pad(a, pad)
+        subM = strd(a, shape = s, strides = a.strides * 2)
+        a = np.einsum('ij,ijkl->kl', f, subM)
+    return a
