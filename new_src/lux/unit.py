@@ -75,3 +75,6 @@ class Unit:
     def __str__(self) -> str:
         out = f"[{self.team_id}] {self.unit_id} {self.unit_type} at {self.pos}"
         return out
+
+    def __hash__(self):
+        return hash(self.unit_id)

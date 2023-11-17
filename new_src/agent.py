@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
 from lux.kit import obs_to_game_state, GameState, EnvConfig
 from lux.utils import direction_to, my_turn_to_place_factory
+from lux.forward_sim import stop_movement_collisions
 import numpy as np
 import sys
 class Agent():
@@ -127,6 +128,9 @@ class Agent():
                         move_cost = unit.move_cost(game_state, direction)
                         if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
                             actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+        
+        actions = stop_movement_collisions(obs, game_state, self.env_cfg, self.player, actions)
+        
         return actions
 
 
