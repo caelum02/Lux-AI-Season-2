@@ -1,13 +1,9 @@
-from typing import Dict
-from typing import Dict
-from matplotlib import pyplot as plt
 from lux.kit import obs_to_game_state, GameState, EnvConfig
 from lux.utils import direction_to, my_turn_to_place_factory
 from lux.forward_sim import stop_movement_collisions
 import numpy as np
 from numpy.linalg import norm
-from numpy.linalg import norm
-import sys
+
 class Agent():
     def __init__(self, player: str, env_cfg: EnvConfig) -> None:
         self.player = player
@@ -69,7 +65,7 @@ class Agent():
                 return dict(spawn=spawn_loc, metal=150, water=150)
             return dict()
 
-    def _get_factory_misc(self, factories: Dict[str, "Factory"]):
+    def _get_factory_misc(self, factories):
 
         factory_tiles, factory_units = [], []
         factory_ids = []
@@ -180,10 +176,8 @@ class Agent():
                 ice_threshold = 50
                 # previous ice mining code
                 if adjacent_to_factory and unit.power < unit.unit_cfg.INIT_POWER:
-                    
-                    
-                               
-                    actions[unit_id] = [unit.pickup(4, 500, repeat=0, n=1)]
+                    power = max(1000 - unit.power, 0)
+                    actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
 
                     # 4 means power
                 elif unit.cargo.ice < ice_threshold:
@@ -206,9 +200,9 @@ class Agent():
                             actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
 
                             # Reallocate robot if necessary
-                            if len(self.robots_ore_factory[factory_id]) == 0:
-                                self.robots_ice_factory[factory_id].remove(unit_id)
-                                self.robots_ore_factory[factory_id].append(unit_id)
+                            #if len(self.robots_ice_factory) >= 3 and len(self.robots_ore_factory[factory_id]) == 0:
+                            #    self.robots_ice_factory[factory_id].remove(unit_id)
+                            #    self.robots_ore_factory[factory_id].append(unit_id)
                         
                     else:
                         move_cost = unit.move_cost(game_state, direction)
@@ -222,7 +216,8 @@ class Agent():
                 ore_threshold = 50
                 # previous ore mining code
                 if adjacent_to_factory and unit.power < unit.unit_cfg.INIT_POWER:
-                    actions[unit_id] = [unit.pickup(4, 500, repeat=0, n=1)]
+                    power = max(1000 - unit.power, 0)
+                    actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
                     # 4 means power
                 elif unit.cargo.ore < ore_threshold:
                     ore_tile_distances = norm(ore_tile_locations - unit.pos, ord=1, axis=1)
@@ -244,9 +239,9 @@ class Agent():
                             actions[unit_id] = [unit.transfer(direction, 1, unit.cargo.ore, repeat=0, n=1)]
                             
                             # Reallocate robot
-                            if len(self.robots_ice_factory[factory_id]) < 3:
-                                self.robots_ore_factory[factory_id].remove(unit_id)
-                                self.robots_ice_factory[factory_id].append(unit_id)
+                            #if len(self.robots_ice_factory[factory_id]) < 3:
+                            #    self.robots_ore_factory[factory_id].remove(unit_id)
+                            #    self.robots_ice_factory[factory_id].append(unit_id)
                         
                     else:
                         move_cost = unit.move_cost(game_state, direction)
@@ -260,8 +255,10 @@ class Agent():
             # if factory can manage current water usage, then water
             #if factory.cargo.water > 100:
             #    actions[factory_id] = factory.water()
-            if False:
-                pass
+            remaining_steps = self.env_cfg.max_episode_length - game_state.real_env_steps
+            if remaining_steps < 100:
+                if factory.water_cost(game_state) <= factory.cargo.water - remaining_steps:
+                    actions[factory_id] = factory.water()
             else: # or build robots
                 if factory.can_build_heavy(game_state):
                     actions[factory_id] = factory.build_heavy()
