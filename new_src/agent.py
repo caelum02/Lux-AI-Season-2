@@ -66,6 +66,13 @@ class Agent():
             if factory.power >= self.env_cfg.ROBOTS["HEAVY"].POWER_COST and \
             factory.cargo.metal >= self.env_cfg.ROBOTS["HEAVY"].METAL_COST:
                 actions[unit_id] = factory.build_heavy()
+            # elif factory.power >= self.env_cfg.ROBOTS["LIGHT"].POWER_COST and \
+            # factory.cargo.metal >= self.env_cfg.ROBOTS["LIGHT"].METAL_COST:
+            #     actions[unit_id] = factory.build_light()
+            remaining_steps = self.env_cfg.max_episode_length - game_state.real_env_steps
+            if remaining_steps < 70:
+                if factory.water_cost(game_state) <= factory.cargo.water - remaining_steps:
+                    actions[unit_id] = factory.water()
             factory_tiles += [factory.pos]
             factory_units += [factory]
         factory_tiles = np.array(factory_tiles)
@@ -82,7 +89,7 @@ class Agent():
                 factory_distances = np.linalg.norm(factory_tiles - unit.pos, ord=1, axis=1)
                 closest_factory_tile = factory_tiles[np.argmin(factory_distances)]
                 closest_factory = factory_units[np.argmin(factory_distances)]
-                adjacent_to_factory = np.linalg.norm(closest_factory_tile - unit.pos, ord=1) == 0
+                adjacent_to_factory = np.linalg.norm(closest_factory_tile - unit.pos, ord=np.inf) <= 1
 
                 ice_threshold = 40
                 # previous ice mining code
