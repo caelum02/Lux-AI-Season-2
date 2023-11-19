@@ -42,9 +42,9 @@ class Agent():
                 self.factory_score = np.zeros((map_size, map_size))
                 self.rubble_score = conv2d(game_state.board.rubble, average_kernel(5), n=3)
                 self.factory_score += (self.rubble_score / np.max(self.rubble_score)) * 0.5
-                ice_tile_locations = np.argwhere(game_state.board.ice.T == 1)
-                ore_tile_locations = np.argwhere(game_state.board.ore.T == 1)
-                all_locations = np.mgrid[:map_size, :map_size].swapaxes(0, 2).reshape(-1, 2)
+                ice_tile_locations = np.argwhere(game_state.board.ice == 1)
+                ore_tile_locations = np.argwhere(game_state.board.ore == 1)
+                all_locations = np.array(np.meshgrid(np.arange(0, map_size), np.arange(0, map_size), indexing='xy')).swapaxes(0, 2).reshape(-1, 2)
                 ice_distances = taxi_dist(np.expand_dims(all_locations, 1), np.expand_dims(ice_tile_locations, 0))
                 ice_distances = np.min(ice_distances, axis=-1)
                 ice_distances = ice_distances.reshape(map_size, map_size)
@@ -70,10 +70,8 @@ class Agent():
                 # Build factory at the position with the lowest factory_score
                 factory_score = self.factory_score + (obs["board"]["valid_spawns_mask"] == 0) * 1e9
                 
-                spawn_loc = np.argmin(factory_score)
+                spawn_loc = np.unravel_index(np.argmin(factory_score), factory_score.shape)
                 map_size = self.env_cfg.map_size
-                
-                spawn_loc = np.array([spawn_loc // map_size, spawn_loc % map_size])
                 factory_score_spawn = factory_score[spawn_loc[0], spawn_loc[1]]
                 rubble_score_spawn = self.rubble_score[spawn_loc[0], spawn_loc[1]]
                 print(f"{self.player} placed factory {spawn_loc}, factory score: {factory_score_spawn}, rubble score: {rubble_score_spawn}", file=sys.stderr)
