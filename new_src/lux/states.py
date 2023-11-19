@@ -4,7 +4,7 @@ from typing import Literal
 import numpy as np
 
 Position = tuple[int, int]
-Resource = Literal["ice", "ore"]
+Resource = Literal["ice", "ore", "water", "metal", "power"]
 
 FactoryId = str
 UnitId = str
@@ -107,29 +107,37 @@ class ResourcePlan:
     max_resource_robots: int
     resource_threshold_light: int
 
+@dataclass
+class TransmitPlan:
+    target_pos: Position
+    source_pos: Position
+    transmit_route: Route
+    max_transmit_robots: int
+
 class FactoryRole(IntEnum):
     MAIN = 0
     SUB = 1
 
 @dataclass
 class FactoryState:
-    resources: dict[str, ResourcePlan]
-    robot_missions: dict[UnitMission, list[UnitId]] = None
+    plans: dict[str, ResourcePlan|TransmitPlan] | None = None
+    robot_missions: dict[UnitMission, list[UnitId]] | None = None
     role : FactoryRole | None = None
     main_factory : FactoryId | None = None
     sub_factory : FactoryId | None = None
 
     def __post_init__(self):
-        if robot_missions is None:
-            robot_missions = {mission: [] for mission in UnitMission}
+        if self.robot_missions is None:
+            self.robot_missions = {mission: [] for mission in UnitMission}
     
 @dataclass
 class EarlyStepState:
-    map_size: int = 64
     rubble_score: np.ndarray = None
     factory_score: np.ndarray = None
     resource_score: np.ndarray = None
     latest_main_factory: FactoryId = None
+    sub_factory_map: dict[FactoryId, FactoryId] = {}
+    
     def  __post_init__(self):
         size = 64
         if self.rubble_score is None:
