@@ -5,6 +5,7 @@ import numpy as np
 from dataclasses import dataclass
 from lux.cargo import UnitCargo
 from lux.config import EnvConfig
+from lux.states import UnitState
 
 # a[1] = direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
 move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
@@ -20,6 +21,7 @@ class Unit:
     env_cfg: EnvConfig
     unit_cfg: dict
     action_queue: List
+    state: UnitState | None = None
 
     @property
     def agent_id(self):

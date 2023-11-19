@@ -4,6 +4,8 @@ import numpy as np
 from dataclasses import dataclass
 from lux.cargo import UnitCargo
 from lux.config import EnvConfig
+from lux.states import FactoryState
+
 @dataclass
 class Factory:
     team_id: int
@@ -15,6 +17,7 @@ class Factory:
     # lichen tiles connected to this factory
     # lichen_tiles: np.ndarray
     env_cfg: EnvConfig
+    state: FactoryState | None = None
 
     def build_heavy_metal_cost(self, game_state):
         unit_cfg = self.env_cfg.ROBOTS["HEAVY"]
