@@ -1,5 +1,5 @@
 from enum import IntEnum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 import numpy as np
 
@@ -9,15 +9,18 @@ Resource = Literal["ice", "ore", "water", "metal", "power"]
 FactoryId = str
 UnitId = str
 
+
 @dataclass
 class Route:
     start: Position
     end: Position
     path: list[Position]
     cost: float
+
     def __len__(self):
         return len(self.path)
-    
+
+
 class UnitStateEnum(IntEnum):
     INITIAL = 0
     MOVING_TO_RESOURCE = 1
@@ -26,6 +29,7 @@ class UnitStateEnum(IntEnum):
     DROPPING_RESOURCE = 4
     RECHARGING = 5
     TRANSFERING_RESOURCE = 6
+
 
 class UnitMission(IntEnum):
     PIPE_FACTORY_TO_FACTORY = 0
@@ -44,6 +48,7 @@ class UnitMission(IntEnum):
         else:
             return None
 
+
 class UnitRole(IntEnum):
     STATIONARY_MINER = 0
     MINER_TRANSPORTER = 1
@@ -54,20 +59,25 @@ class UnitRole(IntEnum):
     @property
     def is_stationary(self):
         return self in [UnitRole.STATIONARY_MINER, UnitRole.STATIONARY_TRANSPORTER]
-    
+
     @property
     def is_transporter(self):
-        return self in [UnitRole.MINER_TRANSPORTER, UnitRole.STATIONARY_TRANSPORTER, UnitRole.TRANSPORTER]
-    
+        return self in [
+            UnitRole.MINER_TRANSPORTER,
+            UnitRole.STATIONARY_TRANSPORTER,
+            UnitRole.TRANSPORTER,
+        ]
+
     @property
     def is_miner(self):
         return self in [UnitRole.STATIONARY_MINER, UnitRole.MINER_TRANSPORTER]
 
+
 @dataclass
-class UnitState:    
+class UnitState:
     state: UnitStateEnum = UnitStateEnum.INITIAL
     following_route: Route | None = None
-    mission : UnitMission | None = None
+    mission: UnitMission | None = None
     resource_type: Resource | None = None
     owner: FactoryId | None = None
     # role : UnitRole | None = None
@@ -77,7 +87,7 @@ class UnitState:
     def __post_init__(self):
         self.__role = None
         self.__stay_pos = None
-    
+
     @property
     def role(self):
         return self.__role
@@ -85,13 +95,13 @@ class UnitState:
     @property
     def stay_pos(self):
         return self.__stay_pos
-    
+
     @role.setter
     def set_role(self, role: UnitRole):
         if self.__role != role:
             self.__role = role
             self.state = UnitStateEnum.INITIAL
-    
+
     @stay_pos.setter
     def set_stay_pos(self, pos: Position):
         if np.any(self.__stay_pos != pos):
@@ -101,11 +111,12 @@ class UnitState:
 
 @dataclass
 class ResourcePlan:
-    resource_pos: Position
-    resource_factory_pos: Position
-    resource_route: Route
-    max_resource_robots: int
+    destination: Position
+    source: Position
+    route: Route
+    max_route_robots: int
     resource_threshold_light: int
+
 
 @dataclass
 class TransmitPlan:
@@ -114,35 +125,29 @@ class TransmitPlan:
     transmit_route: Route
     max_transmit_robots: int
 
+
 class FactoryRole(IntEnum):
     MAIN = 0
     SUB = 1
 
+
 @dataclass
 class FactoryState:
-    plans: dict[str, ResourcePlan|TransmitPlan] | None = None
+    plans: dict[str, ResourcePlan | TransmitPlan] | None = None
     robot_missions: dict[UnitMission, list[UnitId]] | None = None
-    role : FactoryRole | None = None
-    main_factory : FactoryId | None = None
-    sub_factory : FactoryId | None = None
+    role: FactoryRole | None = None
+    main_factory: FactoryId | None = None
+    sub_factory: FactoryId | None = None
 
     def __post_init__(self):
         if self.robot_missions is None:
             self.robot_missions = {mission: [] for mission in UnitMission}
-    
+
+
 @dataclass
 class EarlyStepState:
     rubble_score: np.ndarray = None
     factory_score: np.ndarray = None
     resource_score: np.ndarray = None
     latest_main_factory: FactoryId = None
-    sub_factory_map: dict[FactoryId, FactoryId] = {}
-    
-    def  __post_init__(self):
-        size = 64
-        if self.rubble_score is None:
-            self.rubble_score = np.zeros((size, size))
-        if self.factory_score is None:
-            self.factory_score = np.zeros((size, size))
-        if self.resource_score is None:
-            self.resource_score = np.zeros((size, size))
+    sub_factory_map: dict[FactoryId, FactoryId] = field(default_factory=dict)

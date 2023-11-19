@@ -3,10 +3,12 @@ import sys
 import numpy as np
 from lux.states import Route
 
+
 def taxi_dist(a, b):
     dx = abs(a[0] - b[0])
     dy = abs(a[1] - b[1])
     return dx + dy
+
 
 def get_trace(position: tuple, trace_map: list) -> list:
     """
@@ -21,11 +23,13 @@ def get_trace(position: tuple, trace_map: list) -> list:
     while prev is not None:
         trace.append(prev)
         prev = trace_map[prev[0]][prev[1]]
-        
+
     return trace
 
 
-def a_star(start: tuple, end: tuple, weight_map: list, shifts: list, ban_set=set()) -> list:
+def a_star(
+    start: tuple, end: tuple, weight_map: list, shifts: list, ban_set=set()
+) -> list:
     """
     a_star - function for calculating shortest way weight for each node using A* algorithm.
     https://en.wikipedia.org/wiki/A*_search_algorithm
@@ -71,7 +75,9 @@ def a_star(start: tuple, end: tuple, weight_map: list, shifts: list, ban_set=set
             # Getting connected node cords.
             cords = (current_cords[0] + shift[0], current_cords[1] + shift[1])
             # If cords out of field range - continue. (For example on field border nodes)
-            if cords[0] not in range(0, len(field)) or cords[1] not in range(0, len(field[0])):
+            if cords[0] not in range(0, len(field)) or cords[1] not in range(
+                0, len(field[0])
+            ):
                 continue
             # Checking if this node hasn't examined yet.
             if cords not in examined:
@@ -83,15 +89,22 @@ def a_star(start: tuple, end: tuple, weight_map: list, shifts: list, ban_set=set
                 # We don't check if it is already in queue because of node examination check on each step in while loop.
                 queue.append(cords)
                 # If calculated weight is lower - assign new weight value.
-                if field[cords[0]][cords[1]] is None or field[cords[0]][cords[1]] > current_weigh + weigh:
+                if (
+                    field[cords[0]][cords[1]] is None
+                    or field[cords[0]][cords[1]] > current_weigh + weigh
+                ):
                     field[cords[0]][cords[1]] = current_weigh + weigh
                     trace[cords[0]][cords[1]] = current_cords
 
                 # Sort queue by sum of cord weight and expected remaining weight (for example, Cartesian distance)
-                queue = sorted(queue, key=lambda cord: taxi_dist(cord, end) + field[cord[0]][cord[1]])
+                queue = sorted(
+                    queue,
+                    key=lambda cord: taxi_dist(cord, end) + field[cord[0]][cord[1]],
+                )
     if field[end[0]][end[1]] is None:
         return [], -1
     return get_trace(end, trace), field[end[0]][end[1]]
+
 
 def dijkstra(start: tuple, weight_map: list, shifts: list, ban_set=set()) -> tuple:
     """
@@ -133,7 +146,9 @@ def dijkstra(start: tuple, weight_map: list, shifts: list, ban_set=set()) -> tup
             # Getting connected node cords.
             cords = (current_cords[0] + shift[0], current_cords[1] + shift[1])
             # If cords out of field range - continue. (For example on field border nodes)
-            if cords[0] not in range(0, len(field)) or cords[1] not in range(0, len(field[0])):
+            if cords[0] not in range(0, len(field)) or cords[1] not in range(
+                0, len(field[0])
+            ):
                 continue
             # Checking if this node hasn't examined yet.
             if cords not in examined:
@@ -145,7 +160,10 @@ def dijkstra(start: tuple, weight_map: list, shifts: list, ban_set=set()) -> tup
                 # We don't check if it is already in queue because of node examination check on each step in while loop.
                 queue.append(cords)
                 # If calculated weight is lower - assign new weight value.
-                if field[cords[0]][cords[1]] is None or field[cords[0]][cords[1]] > current_weigh + weigh:
+                if (
+                    field[cords[0]][cords[1]] is None
+                    or field[cords[0]][cords[1]] > current_weigh + weigh
+                ):
                     field[cords[0]][cords[1]] = current_weigh + weigh
                     trace[cords[0]][cords[1]] = current_cords
     return field, trace
@@ -189,6 +207,7 @@ def get_shortest_loop(rubble_map, start, end, ban_list=[], min_length=0):
         path=trace,
         cost=np.ceil(cost),
     )
+
 
 # direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
 def get_avoiding_direction(route, start):

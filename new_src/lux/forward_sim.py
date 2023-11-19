@@ -9,6 +9,7 @@ import sys
 from action_enum import ACTION_T, DIRECTION_T
 from lux.states import UnitStateEnum
 
+
 def forward_sim(full_obs, env_cfg, n=2):
     """
     Forward sims for `n` steps given the current full observation and env_cfg
@@ -18,6 +19,7 @@ def forward_sim(full_obs, env_cfg, n=2):
     from luxai_s2 import LuxAI_S2
     from luxai_s2.config import UnitConfig
     import copy
+
     agent = "player_0"
     env = LuxAI_S2(collect_stats=False, verbose=0)
     env.reset(seed=0)
@@ -37,8 +39,10 @@ def forward_sim(full_obs, env_cfg, n=2):
         forward_obs.append(obs[agent])
     return forward_obs
 
+
 def forward_sim_act(full_obs, env_cfg, player, action):
     from luxai_s2 import LuxAI_S2
+
     # from luxai_s2.config import UnitConfig
     # import copy
     env = LuxAI_S2(collect_stats=False, verbose=0)
@@ -55,7 +59,9 @@ def forward_sim_act(full_obs, env_cfg, player, action):
     obs, _, _, _, _ = env.step(empty_actions)
     return obs[player]
 
+
 move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
+
 
 def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_states):
     units_map = defaultdict(list)
@@ -68,22 +74,20 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
             unit_action = actions[unit.unit_id][0]
         elif len(unit.action_queue):
             unit_action = unit.action_queue[0]
-        
+
         if unit_action is not None and unit_action[0] == ACTION_T.MOVE:
             move_actions.append((unit, unit_action))
 
     new_units_map: Dict[str, List[Unit]] = defaultdict(list)
     heavy_entered_pos: Dict[str, List[Unit]] = defaultdict(list)
     light_entered_pos: Dict[str, List[Unit]] = defaultdict(list)
-    
+
     for unit, move_action in move_actions:
         # skip move center
         direction = move_action[1]
         if direction != DIRECTION_T.CENTER:
             old_pos_hash = tuple(unit.pos)
-            target_pos = (
-                unit.pos + move_deltas[direction]
-            )
+            target_pos = unit.pos + move_deltas[direction]
             new_pos_hash = tuple(target_pos)
 
             # Remove moving units from units_map
@@ -98,7 +102,7 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
                 heavy_entered_pos[new_pos_hash].append(unit)
             else:
                 light_entered_pos[new_pos_hash].append(unit)
-    
+
     # Only stationary units are left in units_map
     # add in all the stationary units
     for pos_hash, units in units_map.items():
@@ -122,8 +126,12 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
             most_power_unit = units[0]
             for u in units:
                 if u.unit_type == "HEAVY":
-                    if unit_states[most_power_unit.unit_id].state == UnitStateEnum.MOVING_TO_START \
-                        and unit_states[u.unit_id].state != UnitStateEnum.MOVING_TO_START:
+                    if (
+                        unit_states[most_power_unit.unit_id].state
+                        == UnitStateEnum.MOVING_TO_START
+                        and unit_states[u.unit_id].state
+                        != UnitStateEnum.MOVING_TO_START
+                    ):
                         most_power_unit = u
                     elif u.power > most_power_unit.power:
                         most_power_unit = u
