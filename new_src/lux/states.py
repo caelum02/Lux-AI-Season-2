@@ -32,6 +32,7 @@ class ResourcePlan:
     resource_route: Route
     max_resource_robots: int
     resource_threshold_light: int
+    
 @dataclass
 class FactoryState:
     resources: dict[str, ResourcePlan]
