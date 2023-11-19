@@ -6,6 +6,7 @@ import numpy as np
 from numpy.linalg import norm
 
 from lux.states import UnitStates
+from action_enum import RESOURCE_T
 
 class Agent():
     def __init__(self, player: str, env_cfg: EnvConfig) -> None:
@@ -208,6 +209,7 @@ class Agent():
         loop_turns = 10 if is_day else 6
         assert loop_turns <= self.env_cfg.DAY_LENGTH
         min_dig_turns = 3
+
         # handle action of robots bound to factories
         for factory_id, factory in factories.items():
 
@@ -256,7 +258,7 @@ class Agent():
                         if can_transfer_to_factory:
                             self.unit_states[unit_id] = UnitStates.DROPPING_OFF_RESOURCE
                             if unit.power >= unit.action_queue_cost(game_state):
-                                actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
+                                actions[unit_id] = [unit.transfer(direction, RESOURCE_T.ICE, unit.cargo.ice, repeat=0, n=1)]
                                 self.unit_states[unit_id] = UnitStates.RECHARING
                         else:
                             move_cost = unit.move_cost(game_state, direction)
@@ -274,6 +276,7 @@ class Agent():
                         if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
                             actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
                 elif self.unit_states[unit_id] == UnitStates.DROPPING_OFF_RESOURCE:
+                    direction = direction_to(unit.pos, factory.pos)
                     if unit.power >= unit.action_queue_cost(game_state):
                         actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
                         self.unit_states[unit_id] = UnitStates.RECHARING
