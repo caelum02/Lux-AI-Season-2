@@ -1,4 +1,5 @@
 import numpy as np
+from itertools import product
 
 def my_turn_to_place_factory(place_first: bool, step: int):
     if place_first:
@@ -37,7 +38,17 @@ def direction_to(src, target):
             else:
                 return 4
         else:
+
             if dy > 0:
                 return 3
             else:
                 return 1
+
+def taxi_dist(a, b):
+    return np.linalg.norm(a - b, ord=1, axis=-1)
+
+
+factory_tile_deltas = (-1, 0, 1)
+factory_tile_deltas = np.array(list(product(factory_tile_deltas, factory_tile_deltas)))
+def get_factory_tiles(factory_center):
+    return factory_center + factory_tile_deltas

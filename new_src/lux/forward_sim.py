@@ -2,10 +2,12 @@ from collections import defaultdict
 from typing import Dict, List, Set, Tuple, Union
 
 from lux.unit import Unit
+from lux.pathfinding import get_avoiding_direction
 import numpy as np
 import sys
 
 from action_enum import ACTION_T, DIRECTION_T
+from lux.states import UnitStateEnum
 
 def forward_sim(full_obs, env_cfg, n=2):
     """
@@ -55,7 +57,7 @@ def forward_sim_act(full_obs, env_cfg, player, action):
 
 move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
 
-def stop_movement_collisions(obs, game_state, env_cfg, agent, actions):
+def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_states):
     units_map = defaultdict(list)
     move_actions = []
 
@@ -64,7 +66,7 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions):
         unit_action = None
         if unit.unit_id in actions:
             unit_action = actions[unit.unit_id][0]
-        elif unit.action_queue:
+        elif len(unit.action_queue):
             unit_action = unit.action_queue[0]
         
         if unit_action is not None and unit_action[0] == ACTION_T.MOVE:
@@ -102,10 +104,10 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions):
     for pos_hash, units in units_map.items():
         new_units_map[pos_hash] += units
 
-    all_stopped_units: Set[Unit] = set()
+    all_stopped_units = dict()
     # new_units_map_after_collision: Dict[str, List[Unit]] = defaultdict(list)
     for pos_hash, units in new_units_map.items():
-        stopped_units: Set[Unit] = set()
+        stopped_units = dict()
         if len(units) <= 1:
             continue
 
@@ -114,29 +116,44 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions):
             surviving_unit = units_map[pos_hash][0]
             for u in units:
                 if u.unit_id != surviving_unit.unit_id:
-                    stopped_units.add(u)
+                    stopped_units[u] = u.move(0)
         elif len(heavy_entered_pos[pos_hash]) > 1:
             # more than two heavy collide while moving, less powerful unit yields.
             most_power_unit = units[0]
             for u in units:
                 if u.unit_type == "HEAVY":
-                    if u.power > most_power_unit.power:
+                    if unit_states[most_power_unit.unit_id].state == UnitStateEnum.MOVING_TO_START \
+                        and unit_states[u.unit_id].state != UnitStateEnum.MOVING_TO_START:
+                        most_power_unit = u
+                    elif u.power > most_power_unit.power:
                         most_power_unit = u
             surviving_unit = most_power_unit
+            surviving_route = unit_states[surviving_unit.unit_id].following_route
             for u in units:
-                if u.unit_id != surviving_unit.unit_id:
-                    stopped_units.add(u)
+                if unit_states[u.unit_id].state == UnitStateEnum.MOVING_TO_START:
+                    direction = get_avoiding_direction(surviving_route, u.pos)
+                    stopped_units[u] = u.move(direction)
+                else:
+                    stopped_units[u] = u.move(0)
         elif len(heavy_entered_pos[pos_hash]) > 0:
             # one heavy and other light collide while moving, light yields.
             surviving_unit = heavy_entered_pos[pos_hash][0]
-            for u in units:
-                if u.unit_id != surviving_unit.unit_id:
-                    stopped_units.add(u)
+            surviving_route = unit_states[surviving_unit.unit_id].following_route
+            if surviving_route is None:
+                for u in units:
+                    if u.unit_id != surviving_unit.unit_id:
+                        stopped_units[u] = u.move(0)
+            else:
+                for u in units:
+                    if unit_states[u.unit_id].state == UnitStateEnum.MOVING_TO_START:
+                        direction = get_avoiding_direction(surviving_route, u.pos)
+                        stopped_units[u] = u.move(direction)
+                    else:
+                        stopped_units[u] = u.move(0)
             # new_units_map_after_collision[pos_hash].append(surviving_unit)
 
         all_stopped_units.update(stopped_units)
 
-    for u in all_stopped_units:
-        actions[u.unit_id] = [u.move(0)]
-        
+    for u, a in all_stopped_units.items():
+        actions[u.unit_id] = [a]
     return actions
