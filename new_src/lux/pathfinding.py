@@ -183,16 +183,8 @@ def get_shortest_loop(rubble_map, start, end, ban_list=[], min_length=0):
     if cost == -1:
         return None
     trace = list(reversed(trace))
-    for pos in trace:
-        if pos != start:
-            rubble_map[pos[0]][pos[1]] = -1
-    trace_back, cost_back = a_star(end, start, rubble_map, SHIFTS, ban_set={(trace[1], trace[0])})
-    if cost_back == -1:
-        return None
-    trace_back = list(reversed(trace_back))
-    trace_back.pop(0)
-    trace = trace + trace_back
-    cost = cost + cost_back
+    trace = trace + trace[:-1][::-1]
+    cost = cost + (cost - rubble_map[end[0]][end[1]] + rubble_map[start[0]][start[1]])
     return Route(
         start=start,
         end=end,
