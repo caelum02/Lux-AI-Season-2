@@ -8,6 +8,7 @@ import numpy as np
 from numpy.linalg import norm
 
 from lux.states import ResourcePlan, UnitState, UnitStateEnum, FactoryState
+from action_enum import RESOURCE_T
 
 class Agent():
     def __init__(self, player: str, env_cfg: EnvConfig) -> None:

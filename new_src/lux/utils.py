@@ -17,11 +17,12 @@ def direction_to(src, target):
     dy = ds[1]
     if dx == 0 and dy == 0:
         return 0
+
     if abs(dx) > abs(dy):
-        if dx > 0:
-            return 2 
-        else:
-            return 4
+            if dx > 0:
+                return 2 
+            else:
+                return 4
     else:
         if dy > 0:
             return 3

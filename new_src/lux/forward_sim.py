@@ -6,6 +6,7 @@ from lux.pathfinding import get_avoiding_direction
 import numpy as np
 import sys
 
+from action_enum import ACTION_T, DIRECTION_T
 from lux.states import UnitStateEnum
 
 def forward_sim(full_obs, env_cfg, n=2):
@@ -58,39 +59,39 @@ move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
 
 def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_states):
     units_map = defaultdict(list)
-    actions_by_type = defaultdict(list)                
+    move_actions = []
+
     for unit in game_state.units[agent].values():
         units_map[tuple(unit.pos)].append(unit)
+        unit_action = None
         if unit.unit_id in actions:
-            unit_a = actions[unit.unit_id][0]
+            unit_action = actions[unit.unit_id][0]
         elif len(unit.action_queue):
-            unit_a = unit.action_queue[0]
-        else:
-            unit_a = None
-        if unit_a is not None:
-            actions_by_type[unit_a[0]].append((unit, unit_a))
-    #for factory in game_state.factories[agent].values():
-    #    if len(factory.action_queue) > 0:
-    #        unit_a: Action = factory.action_queue.pop(0)
-    #        actions_by_type[unit_a.act_type].append((factory, unit_a))
+            unit_action = unit.action_queue[0]
+        
+        if unit_action is not None and unit_action[0] == ACTION_T.MOVE:
+            move_actions.append((unit, unit_action))
+
     new_units_map: Dict[str, List[Unit]] = defaultdict(list)
     heavy_entered_pos: Dict[str, List[Unit]] = defaultdict(list)
     light_entered_pos: Dict[str, List[Unit]] = defaultdict(list)
     
-    for unit, move_action in actions_by_type[0]:
+    for unit, move_action in move_actions:
         # skip move center
-        if move_action[1] != 0:
+        direction = move_action[1]
+        if direction != DIRECTION_T.CENTER:
             old_pos_hash = tuple(unit.pos)
             target_pos = (
-                unit.pos + move_deltas[move_action[1]]
+                unit.pos + move_deltas[direction]
             )
-            # power_required = move_action.power_cost
-            # unit.pos = target_pos
             new_pos_hash = tuple(target_pos)
+
+            # Remove moving units from units_map
             if len(units_map[old_pos_hash]) == 1:
                 del units_map[old_pos_hash]
             else:
                 units_map[old_pos_hash].remove(unit)
+
             new_units_map[new_pos_hash].append(unit)
 
             if unit.unit_type == "HEAVY":
@@ -98,9 +99,9 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
             else:
                 light_entered_pos[new_pos_hash].append(unit)
     
-    
+    # Only stationary units are left in units_map
+    # add in all the stationary units
     for pos_hash, units in units_map.items():
-        # add in all the stationary units
         new_units_map[pos_hash] += units
 
     all_stopped_units = dict()
@@ -108,8 +109,8 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
     for pos_hash, units in new_units_map.items():
         stopped_units = dict()
         if len(units) <= 1:
-            # no collision
             continue
+
         if len(units_map[pos_hash]) > 0:
             # There is a stationary unit, avoid.
             surviving_unit = units_map[pos_hash][0]
@@ -150,9 +151,7 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
                     else:
                         stopped_units[u] = u.move(0)
             # new_units_map_after_collision[pos_hash].append(surviving_unit)
-        else:
-            ...
-            # this is for factory spawn collision checking, which is skipped for now
+
         all_stopped_units.update(stopped_units)
 
     for u, a in all_stopped_units.items():
