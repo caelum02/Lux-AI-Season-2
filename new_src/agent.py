@@ -1,11 +1,13 @@
 import sys
+from typing import Literal
 from lux.kit import obs_to_game_state, GameState, EnvConfig
-from lux.utils import direction_to, my_turn_to_place_factory
+from lux.utils import direction_to, get_factory_tiles, my_turn_to_place_factory, taxi_dist
+from lux.pathfinding import get_shortest_loop
 from lux.forward_sim import stop_movement_collisions
 import numpy as np
 from numpy.linalg import norm
 
-from lux.states import UnitStates
+from lux.states import ResourcePlan, UnitState, UnitStateEnum, FactoryState
 
 class Agent():
     def __init__(self, player: str, env_cfg: EnvConfig) -> None:
@@ -20,10 +22,12 @@ class Agent():
 
         self.robots_ice_factory = dict() # factory_id -> unit_id
         self.robots_ore_factory = dict() # factory_id -> unit_id
+        self.robots_rubble_factory = dict() # factory_id -> unit_id
 
         self.action_start_power = dict()
 
-        self.unit_states = dict() # unit_id -> UnitStates
+        self.unit_states = dict() # unit_id -> UnitState
+        self.factory_states = dict() # factory_id -> FactoryState
 
     def early_setup(self, step: int, obs, remainingOverageTime: int = 60):
         if step == 0:
@@ -41,14 +45,14 @@ class Agent():
                 ice_tile_locations = np.argwhere(game_state.board.ice.T == 1)
                 ore_tile_locations = np.argwhere(game_state.board.ore.T == 1)
                 all_locations = np.mgrid[:map_size, :map_size].swapaxes(0, 2).reshape(-1, 2)
-                ice_distances = np.linalg.norm(np.expand_dims(all_locations, 1) - np.expand_dims(ice_tile_locations, 0), ord=1, axis=-1)
+                ice_distances = taxi_dist(np.expand_dims(all_locations, 1), np.expand_dims(ice_tile_locations, 0))
                 ice_distances = np.min(ice_distances, axis=-1)
                 ice_distances = ice_distances.reshape(map_size, map_size)
 
-                ore_distances = np.linalg.norm(np.expand_dims(all_locations, 1) - np.expand_dims(ore_tile_locations, 0), ord=1, axis=-1)
+                ore_distances = taxi_dist(np.expand_dims(all_locations, 1), np.expand_dims(ore_tile_locations, 0))
                 ore_distances = np.min(ore_distances, axis=-1)
                 ore_distances = ore_distances.reshape(map_size, map_size)
-
+                # TODO check for ice, ore routes
                 # distances[x][y] is the distance to the nearest ice tile 
                 self.factory_score += np.clip(ice_distances-2, a_min=0, a_max=None) + np.clip(ore_distances-2, a_min=0, a_max=None) * 0.3
             
@@ -86,19 +90,20 @@ class Agent():
 
     def _get_factory_misc(self, factories):
 
-        factory_tiles, factory_units = [], []
+        factory_centers, factory_units = [], []
         factory_ids = []
         for factory_id, factory in factories.items():
-            factory_tiles += [factory.pos]
+            factory_centers += [factory.pos]
             factory_units += [factory]
             factory_ids += [factory_id]           
 
-        return factory_tiles, factory_units, factory_ids
+        return factory_centers, factory_units, factory_ids
 
     def _initialize_robot_bindings(self, factories):
         for factory_id in factories.keys():
             self.robots_ice_factory[factory_id] = list()
             self.robots_ore_factory[factory_id] = list()
+            self.robots_rubble_factory[factory_id] = list()
 
     @staticmethod
     def _num_robot_type_from_list(robot_list, robot_type, units):
@@ -119,6 +124,115 @@ class Agent():
     
     def num_heavies_ice_factory(self, factory_id, units):
         return self._num_robot_type_from_list(self.robots_ice_factory[factory_id], "HEAVY", units)
+
+    def handle_robot_resource_gathering(self, game_state, factory, factory_state, unit, resource: Literal["ice"] | Literal["ore"], actions, factory_pickup_robots):
+        unit_id = unit.unit_id
+        unit_state = self.unit_states[unit_id]
+        factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
+        can_pickup_from_factory = factory_inf_distance <= 1
+        can_transfer_to_factory = factory_inf_distance <= 2
+        resource_plan = factory_state.resources[resource]
+        
+        res_threshold = resource_plan.resource_threshold_light
+        if unit.unit_type == "HEAVY":
+            res_threshold *= 10
+        for _ in range(len(UnitStateEnum)):
+            if unit_state.state == UnitStateEnum.MOVING_TO_START:
+                target = resource_plan.resource_factory_pos
+                if np.all(target == unit.pos):
+                    unit_state.state = UnitStateEnum.MOVING_TO_RESOURCE
+                else:
+                    direction = direction_to(unit.pos, target)
+                    move_cost = unit.move_cost(game_state, direction)
+                    if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
+                        actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+                    break
+            if unit_state.state == UnitStateEnum.MOVING_TO_RESOURCE:
+                target = resource_plan.resource_pos
+                if np.all(target == unit.pos):
+                    unit_state.state = UnitStateEnum.DIGGING
+                else:
+                    route = resource_plan.resource_route
+                    try:
+                        route_step = route.path.index(tuple(unit.pos))
+                    except ValueError:
+                        # not in route
+                        unit_state.state = UnitStateEnum.MOVING_TO_START
+                        continue
+                    next_in_route = route.path[route_step + 1]
+                    direction = direction_to(unit.pos, next_in_route)
+                    move_cost = unit.move_cost(game_state, direction)
+                    if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
+                        actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+                    break
+            if unit_state.state == UnitStateEnum.DIGGING:
+                if getattr(unit.cargo, resource) < res_threshold:
+                    if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(game_state):
+                        actions[unit_id] = [unit.dig(repeat=0, n=1)]
+                    break
+                else:
+                    unit_state.state = UnitStateEnum.MOVING_TO_FACTORY
+            if unit_state.state == UnitStateEnum.MOVING_TO_FACTORY:
+                target = resource_plan.resource_factory_pos
+                if np.all(target == unit.pos):
+                    unit_state.state = UnitStateEnum.DROPPING_RESOURCE
+                else:
+                    route = resource_plan.resource_route
+                    try:
+                        route_step = route.path.index(tuple(unit.pos))
+                    except ValueError:
+                        # not in route
+                        unit_state.state = UnitStateEnum.MOVING_TO_START
+                        continue
+                    next_in_route = route.path[route_step + 1]
+                    direction = direction_to(unit.pos, next_in_route)
+                    move_cost = unit.move_cost(game_state, direction)
+                    if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
+                        actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+                    break
+            if unit_state.state == UnitStateEnum.DROPPING_RESOURCE:
+                if getattr(unit.cargo, resource) > 0:
+                    if unit.power >= unit.action_queue_cost(game_state):
+                        direction = 0
+                        resource_type = 0 if resource == "ice" else 1
+                        actions[unit_id] = [unit.transfer(direction, resource_type, getattr(unit.cargo, resource), repeat=0, n=1)]
+                    break
+                else:
+                    unit_state.state = UnitStateEnum.RECHARGING
+                    if unit.unit_type == "LIGHT":
+                        factory_pickup_robots += 1
+                    else:
+                        factory_pickup_robots += 10
+            if unit_state.state == UnitStateEnum.RECHARGING:
+                target_power = unit.unit_cfg.INIT_POWER
+                robots_multiple = factory_pickup_robots if unit.unit_type == "LIGHT" else factory_pickup_robots / 10
+                if unit.power < target_power:
+                    if (target_power - unit.power) * robots_multiple <= factory.power: # NOTE naive setup. need to check all needs
+                        power = target_power - unit.power
+                        actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
+                        break
+                    else:
+                        if len(unit.action_queue) == 0:
+                            actions[unit_id] = []  # may need to move(0) if there is existing action queue
+                            del actions[unit_id]  # Save action queue update cost
+                        else:
+                            actions[unit_id] = unit.move(0, repeat=0, n=1)
+                        break
+                else:
+                    unit_state.state = UnitStateEnum.MOVING_TO_RESOURCE
+        else:
+            print("Unit state machine failed to break", file=sys.stderr)
+            raise ValueError()
+        return actions
+
+    def add_unit_to_factory(self, factory_id, unit_id, factory_state, resource):
+            if resource == "ice":
+                self.robots_ice_factory[factory_id].append(unit_id)
+            elif resource == "ore":
+                self.robots_ore_factory[factory_id].append(unit_id)
+            else:
+                raise ValueError("Unknown resource")
+            self.unit_states[unit_id] = UnitState(following_route=factory_state.resources[resource].resource_route)
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         """
@@ -143,16 +257,58 @@ class Agent():
         remaining_nights = 0 if is_day else (self.env_cfg.CYCLE_LENGTH - turn_in_cycle)
 
         factories = game_state.factories[self.player]
-        factory_tiles, factory_units, factory_ids = self._get_factory_misc(factories)
+        factory_centers, factory_units, factory_ids = self._get_factory_misc(factories)
         units = game_state.units[self.player]
         
-        if obs['real_env_steps'] == 0:
-            self._initialize_robot_bindings(factories)
-    
         ice_map = game_state.board.ice
         ice_tile_locations = np.argwhere(ice_map == 1)
         ore_map = game_state.board.ore
         ore_tile_locations = np.argwhere(ore_map == 1)
+
+        if obs['real_env_steps'] == 0:
+            self._initialize_robot_bindings(factories)
+            for factory_id, factory in factories.items():
+                rubble_map = game_state.board.rubble.copy() * self.env_cfg.ROBOTS["LIGHT"].RUBBLE_MOVEMENT_COST + self.env_cfg.ROBOTS["LIGHT"].MOVE_COST
+                factory_tiles = get_factory_tiles(factory.pos)
+                ice_tile_distances = taxi_dist(np.expand_dims(ice_tile_locations, 1), np.expand_dims(factory_tiles, 0))
+                argmin_ice_tile, argmin_factory_tile = np.unravel_index(np.argmin(ice_tile_distances), ice_tile_distances.shape)
+                closest_ice_tile = ice_tile_locations[argmin_ice_tile]
+                closest_ice_factory_tile = factory_tiles[argmin_factory_tile]
+                factory_tiles = set(list(map(tuple, factory_tiles)))
+                factory_tiles.remove(tuple(closest_ice_factory_tile))
+                factory_tiles = np.array(list(factory_tiles))
+                ore_tile_distances = taxi_dist(np.expand_dims(ore_tile_locations, 1), np.expand_dims(factory_tiles, 0))
+                argmin_ore_tile, argmin_factory_tile = np.unravel_index(np.argmin(ore_tile_distances), ore_tile_distances.shape)
+                closest_ore_tile = ore_tile_locations[argmin_ore_tile]
+                closest_ore_factory_tile = factory_tiles[argmin_factory_tile]
+
+                ice_route = get_shortest_loop(rubble_map, closest_ice_factory_tile, closest_ice_tile, [closest_ore_tile, closest_ore_factory_tile])
+                if ice_route is None:
+                    raise ValueError("No ice route found")
+                for tile in ice_route.path:
+                    rubble_map[tile[0], tile[1]] = -1
+                ore_route = get_shortest_loop(rubble_map, closest_ore_factory_tile, closest_ore_tile)
+                if ore_route is None:
+                    raise ValueError("No ore route found")
+                print(f"Factory {factory_id} ice route: {ice_route.path}", file=sys.stderr)
+                self.factory_states[factory_id] = FactoryState(
+                    resources=dict(
+                        ice=ResourcePlan(
+                            resource_pos=closest_ice_tile,
+                            resource_factory_pos=closest_ice_factory_tile,
+                            resource_route=ice_route,
+                            max_resource_robots=len(ice_route)-1,
+                            resource_threshold_light=8,
+                        ),
+                        ore=ResourcePlan(
+                            resource_pos=closest_ore_tile,
+                            resource_factory_pos=closest_ore_factory_tile,
+                            resource_route=ore_route,
+                            max_resource_robots=len(ore_route)-1,
+                            resource_threshold_light=8,
+                        ),
+                    ),
+                )
 
         # Remove robots from factories if factory is destroyed
         factory_ids_to_destroy = []
@@ -166,14 +322,20 @@ class Agent():
                     del self.units_master_factory[unit_id]
                     del self.action_start_power[unit_id]
                     del self.unit_states[unit_id]
+                for unit_id in self.robots_rubble_factory[factory_id]:
+                    del self.units_master_factory[unit_id]
+                    del self.action_start_power[unit_id]
+                    del self.unit_states[unit_id]
                 factory_ids_to_destroy.append(factory_id)
         for factory_id in factory_ids_to_destroy:
             del self.robots_ice_factory[factory_id]
             del self.robots_ore_factory[factory_id]
+            del self.robots_rubble_factory[factory_id]
         del factory_ids_to_destroy
+
         # Remove robots from factories if they are dead
         for factory_id, factory in factories.items():
-            for robot_list in [self.robots_ice_factory[factory_id], self.robots_ore_factory[factory_id]]:
+            for robot_list in [self.robots_ice_factory[factory_id], self.robots_ore_factory[factory_id], self.robots_rubble_factory[factory_id]]:
                 for unit_id in list(robot_list):
                     if not unit_id in units:
                         robot_list.remove(unit_id)
@@ -184,180 +346,62 @@ class Agent():
         # Register robots to factories if not registered
         for unit_id, unit in units.items():
             if unit_id not in self.units_master_factory:
-                factory_distances = norm(factory_tiles - unit.pos, ord=1, axis=1)
+                factory_distances = taxi_dist(factory_centers, unit.pos)
                 factory_id = factory_ids[np.argmin(factory_distances)]
-                
+                factory_state = self.factory_states[factory_id]
                 self.units_master_factory[unit_id] = factory_id
                 self.action_start_power[unit_id] = None    
                 
-                # Allocate robot
-                if unit.unit_type == "LIGHT":
-                    if self.num_lights_ice_factory(factory_id, units) <= self.num_lights_ore_factory(factory_id, units):
-                        self.robots_ice_factory[factory_id].append(unit_id)
+                need_more_ice_robot = len(self.robots_ice_factory[factory_id]) < factory_state.resources["ice"].max_resource_robots
+                need_more_ore_robot = len(self.robots_ore_factory[factory_id]) < factory_state.resources["ore"].max_resource_robots
+                if need_more_ice_robot and need_more_ore_robot:
+                    # Allocate robot
+                    if unit.unit_type == "LIGHT":
+                        if self.num_lights_ice_factory(factory_id, units) <= self.num_lights_ore_factory(factory_id, units):
+                            self.add_unit_to_factory(factory_id, unit_id, factory_state, "ice")
+                        else:
+                            self.add_unit_to_factory(factory_id, unit_id, factory_state, "ore")
+                    elif unit.unit_type == "HEAVY":
+                        if self.num_heavies_ice_factory(factory_id, units) <= self.num_heavies_ore_factory(factory_id, units):
+                            self.add_unit_to_factory(factory_id, unit_id, factory_state, "ice")
+                        else:
+                            self.add_unit_to_factory(factory_id, unit_id, factory_state, "ore")
                     else:
-                        self.robots_ore_factory[factory_id].append(unit_id)
-                elif unit.unit_type == "HEAVY":
-                    if self.num_heavies_ice_factory(factory_id, units) <= self.num_heavies_ore_factory(factory_id, units):
-                        self.robots_ice_factory[factory_id].append(unit_id)
-                    else:
-                        self.robots_ore_factory[factory_id].append(unit_id)
+                        raise ValueError("Unknown unit type")
+                elif need_more_ice_robot:
+                    self.add_unit_to_factory(factory_id, unit_id, factory_state, "ice")
+                elif need_more_ore_robot:
+                    self.add_unit_to_factory(factory_id, unit_id, factory_state, "ore")
                 else:
-                    raise ValueError("Unknown unit type")        
-            if unit_id not in self.unit_states:
-                self.unit_states[unit_id] = UnitStates.MOVING_TO_RESOURCE
-        loop_turns = 10 if is_day else 6
-        assert loop_turns <= self.env_cfg.DAY_LENGTH
-        min_dig_turns = 3
+                    self.robots_rubble_factory[factory_id].append(unit_id)
+                    self.unit_states[unit_id] = UnitState()
         # handle action of robots bound to factories
         for factory_id, factory in factories.items():
-
+            factory_state = self.factory_states[factory_id]
             # will implicitly handle robot reallocation
             ice_robots = self.robots_ice_factory[factory_id].copy()
             ore_robots = self.robots_ore_factory[factory_id].copy()
+            rubble_robots = self.robots_rubble_factory[factory_id].copy()
+            factory_pickup_robots = 0
+            for robot_list in [ice_robots, ore_robots, rubble_robots]:
+                for unit_id in robot_list:
+                    unit = units[unit_id]
+                    factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
+                    can_pickup_from_factory = factory_inf_distance <= 1
+                    if can_pickup_from_factory and self.unit_states[unit_id].state == UnitStateEnum.RECHARGING:
+                        if unit.unit_type == "LIGHT":
+                            factory_pickup_robots += 1
+                        else:
+                            factory_pickup_robots += 10
 
             # handle robots adding ice to factory
             for unit_id in ice_robots:
                 unit = units[unit_id]
-                factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
-                can_pickup_from_factory = factory_inf_distance <= 1
-                can_transfer_to_factory = factory_inf_distance <= 2
-
-                ice_tile_distances = np.linalg.norm(ice_tile_locations - unit.pos, ord=1, axis=1)
-                closest_ice_tile = ice_tile_locations[np.argmin(ice_tile_distances)]
-                dig_turns = max(min_dig_turns, loop_turns - (2 * norm(closest_ice_tile - factory.pos, ord=1)))
-                target_power = unit.unit_cfg.DIG_COST * dig_turns
-                target_power += (unit.unit_cfg.MOVE_COST + unit.unit_cfg.RUBBLE_MOVEMENT_COST * self.rubble_score[unit.pos[0], unit.pos[1]]) * loop_turns
-                if is_day:
-                    target_power += unit.unit_cfg.ACTION_QUEUE_POWER_COST * max(0, loop_turns - remaining_days)
-                else:
-                    target_power += unit.unit_cfg.ACTION_QUEUE_POWER_COST * max(loop_turns, remaining_nights)
-                target_power += unit.unit_cfg.ACTION_QUEUE_POWER_COST * loop_turns * 0.3  # spare power
-                target_power = int(target_power)
-                ice_threshold = min(unit.unit_cfg.CARGO_SPACE, unit.unit_cfg.DIG_RESOURCE_GAIN * dig_turns)
-                # previous ice mining code
-                
-                if self.unit_states[unit_id] == UnitStates.MOVING_TO_RESOURCE:
-                    if np.all(closest_ice_tile == unit.pos):
-                        self.unit_states[unit_id] = UnitStates.DIGGING_RESOURCE
-                        if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.dig(repeat=0, n=1)]
-                    else:
-                        direction = direction_to(unit.pos, closest_ice_tile)
-                        move_cost = unit.move_cost(game_state, direction)
-                        if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                elif self.unit_states[unit_id] == UnitStates.DIGGING_RESOURCE:
-                    if unit.cargo.ice < ice_threshold:
-                        if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.dig(repeat=0, n=1)]
-                    else:
-                        self.unit_states[unit_id] = UnitStates.MOVING_TO_FACTORY
-                        direction = direction_to(unit.pos, factory.pos)
-                        if can_transfer_to_factory:
-                            self.unit_states[unit_id] = UnitStates.DROPPING_OFF_RESOURCE
-                            if unit.power >= unit.action_queue_cost(game_state):
-                                actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
-                                self.unit_states[unit_id] = UnitStates.RECHARING
-                        else:
-                            move_cost = unit.move_cost(game_state, direction)
-                            if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                                actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                elif self.unit_states[unit_id] == UnitStates.MOVING_TO_FACTORY:
-                    direction = direction_to(unit.pos, factory.pos)
-                    if can_transfer_to_factory:
-                        self.unit_states[unit_id] = UnitStates.DROPPING_OFF_RESOURCE
-                        if unit.power >= unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
-                            self.unit_states[unit_id] = UnitStates.RECHARING
-                    else:
-                        move_cost = unit.move_cost(game_state, direction)
-                        if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                elif self.unit_states[unit_id] == UnitStates.DROPPING_OFF_RESOURCE:
-                    if unit.power >= unit.action_queue_cost(game_state):
-                        actions[unit_id] = [unit.transfer(direction, 0, unit.cargo.ice, repeat=0, n=1)]
-                        self.unit_states[unit_id] = UnitStates.RECHARING
-                        if unit.power < target_power:
-                            if can_pickup_from_factory:
-                                if target_power - unit.power <= factory.power:
-                                    power = target_power - unit.power
-                                    actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
-                                    self.unit_states[unit_id] = UnitStates.MOVING_TO_RESOURCE
-                                else:
-                                    actions[unit_id] = []
-                                    del actions[unit_id]  # Save action queue update cost
-                            else:
-                                direction = direction_to(unit.pos, factory.pos)
-                                move_cost = unit.move_cost(game_state, direction)
-                                if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                                    actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                        else:
-                            self.unit_states[unit_id] = UnitStates.MOVING_TO_RESOURCE
-                elif self.unit_states[unit_id] == UnitStates.RECHARING:
-                    if unit.power < target_power:
-                        if can_pickup_from_factory:
-                            if target_power - unit.power <= factory.power:
-                                power = target_power - unit.power
-                                actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
-                                self.unit_states[unit_id] = UnitStates.MOVING_TO_RESOURCE
-                            else:
-                                actions[unit_id] = []
-                                del actions[unit_id]  # Save action queue update cost
-                        else:
-                            direction = direction_to(unit.pos, factory.pos)
-                            move_cost = unit.move_cost(game_state, direction)
-                            if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                                actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                    else:
-                        self.unit_states[unit_id] = UnitStates.MOVING_TO_RESOURCE
+                actions = self.handle_robot_resource_gathering(game_state, factory, factory_state, unit, "ice", actions, factory_pickup_robots)
             # handle robots adding ore to factory
             for unit_id in ore_robots:
                 unit = units[unit_id]
-                factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
-                can_pickup_from_factory = factory_inf_distance <= 1
-                can_transfer_to_factory = factory_inf_distance <= 2
-                ore_threshold = min(unit.unit_cfg.CARGO_SPACE * 0.8, unit.unit_cfg.DIG_RESOURCE_GAIN * 6)
-                
-                ore_tile_distances = norm(ore_tile_locations - unit.pos, ord=1, axis=1)
-                closest_ore_tile = ore_tile_locations[np.argmin(ore_tile_distances)]
-                dig_turns = max(min_dig_turns, loop_turns - (2 * norm(closest_ore_tile - factory.pos, ord=1)))
-                if can_transfer_to_factory and unit.cargo.ore == 0 and unit.power < unit.unit_cfg.INIT_POWER:
-                    if can_pickup_from_factory:
-                        power = max(unit.unit_cfg.INIT_POWER * 2 - unit.power, 0)
-                        actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
-                    else:
-                        direction = direction_to(unit.pos, factory.pos)
-                        move_cost = unit.move_cost(game_state, direction)
-                        if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                    # 4 means power
-                elif unit.cargo.ore < ore_threshold:
-                    
-                    if np.all(closest_ore_tile == unit.pos):
-                        if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.dig(repeat=0, n=1)]
-                    else:
-                        direction = direction_to(unit.pos, closest_ore_tile)
-
-                        move_cost = unit.move_cost(game_state, direction)
-                        if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                # else if we have enough ore, we go back to the factory and dump it.
-                elif unit.cargo.ore >= ore_threshold:
-                    direction = direction_to(unit.pos, factory.pos)
-                    if can_transfer_to_factory and can_pickup_from_factory:  # NOTE workaround of statekeeping
-                        if unit.power >= unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.transfer(direction, 1, unit.cargo.ore, repeat=0, n=1)]
-                            
-                            # Reallocate robot
-                            #if len(self.robots_ice_factory[factory_id]) < 3:
-                            #    self.robots_ore_factory[factory_id].remove(unit_id)
-                            #    self.robots_ice_factory[factory_id].append(unit_id)
-                        
-                    else:
-                        move_cost = unit.move_cost(game_state, direction)
-                        if move_cost is not None and unit.power >= move_cost + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+                actions = self.handle_robot_resource_gathering(game_state, factory, factory_state, unit, "ore", actions, factory_pickup_robots)
 
             # handle factory action
             n_lights = self.num_lights_ore_factory(factory_id, units) + self.num_lights_ice_factory(factory_id, units)
@@ -367,17 +411,21 @@ class Agent():
             #if factory.cargo.water > 100:
             #    actions[factory_id] = factory.water()
             remaining_steps = self.env_cfg.max_episode_length - game_state.real_env_steps
-            if remaining_steps < 100:
-                if factory.water_cost(game_state) <= factory.cargo.water - remaining_steps:
-                    actions[factory_id] = factory.water()
+            water_cost = factory.water_cost(game_state)
+            spreads = (remaining_steps / self.env_cfg.MIN_LICHEN_TO_SPREAD)
+            multiple = (spreads * (spreads + 1) * (2 * spreads + 1) / 6) * self.env_cfg.MIN_LICHEN_TO_SPREAD
+            estimated_water_cost = water_cost * multiple
+            if (estimated_water_cost + remaining_steps) <= factory.cargo.water:
+                actions[factory_id] = factory.water()
+            elif remaining_steps == 1 and water_cost < factory.cargo.water:
+                actions[factory_id] = factory.water()
             else: # or build robots
                 if factory.can_build_heavy(game_state):
                     actions[factory_id] = factory.build_heavy()
                 #elif n_lights <= n_heavies * 4 and factory.can_build_light(game_state):
                 #   actions[factory_id] = factory.build_light()
 
-        actions = stop_movement_collisions(obs, game_state, self.env_cfg, self.player, actions)
-
+        actions = stop_movement_collisions(obs, game_state, self.env_cfg, self.player, actions, self.unit_states)
         return actions
 
 
