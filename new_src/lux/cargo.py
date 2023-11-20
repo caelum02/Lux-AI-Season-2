@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from config import resource_ids_inv
+from lux.config import resource_ids_inv
 
 @dataclass
 class UnitCargo:

@@ -193,11 +193,14 @@ def get_shortest_loop(rubble_map, start, end, ban_list=[], min_length=0):
     start = tuple(start)
     end = tuple(end)
     for pos in ban_list:
+        if tuple(pos) in [start, end]:
+            continue
         rubble_map[pos[0], pos[1]] = -1
     if min_length > 0:
         raise NotImplementedError()
     rubble_map = rubble_map.tolist()
     trace, cost = a_star(start, end, rubble_map, SHIFTS)
+    trace.reverse()
     if cost == -1:
         return None
     cost = cost + (cost - rubble_map[end[0]][end[1]] + rubble_map[start[0]][start[1]])

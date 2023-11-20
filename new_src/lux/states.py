@@ -84,34 +84,17 @@ class UnitState:
     mission: UnitMission | None = None
     resource_type: Resource | None = None
     owner: FactoryId | None = None
-    # role : UnitRole | None = None
-    # target_pos : Position | None = None
+    role : UnitRole | None = None
+    target_pos : Position | None = None
     # Invalid state when role or idle_pos changed
 
-    def __post_init__(self):
-        self.__role = None
-        self.__target_pos = None
-
-    @property
-    def role(self):
-        return self.__role
-
-    @property
-    def target_pos(self):
-        return self.__target_pos
-
-    @role.setter
     def set_role(self, role: UnitRole):
-        if self.__role != role:
-            self.__role = role
-            self.state = UnitStateEnum.INITIAL
-
-    @target_pos.setter
+        self.role = role
+        self.state = UnitStateEnum.INITIAL
+    
     def set_target_pos(self, pos: Position):
-        if np.any(self.__target_pos != pos):
-            self.__target_pos = pos
-            self.state = UnitStateEnum.INITIAL
-
+        self.target_pos = pos
+        self.state = UnitStateEnum.INITIAL
 
 @dataclass
 class Plan:

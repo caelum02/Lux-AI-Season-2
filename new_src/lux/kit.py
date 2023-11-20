@@ -78,6 +78,7 @@ def obs_to_game_state(step, env_cfg: EnvConfig, obs):
                 env_cfg=env_cfg,
             )
             unit.cargo = cargo
+            units[agent][unit_id] = unit
 
     factory_occupancy_map = np.ones_like(obs["board"]["rubble"], dtype=int) * -1
     factories = dict()
