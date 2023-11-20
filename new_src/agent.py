@@ -411,20 +411,21 @@ class Agent:
                             resource_type == "factory_to_factory"
                             and route_step == len(route) - 1
                         ):
-                            charge_threshold = (
-                                unit.action_queue_cost(game_state) * 2
-                                + unit.unit_cfg.INIT_POWER
-                            )
-                            charge_to = int(unit.unit_cfg.INIT_POWER * 1.5)
-                            if unit.power < charge_threshold:
-                                transfer_power = charge_to - unit.power
-                                if factory.power >= transfer_power:
-                                    if unit.power >= unit.action_queue_cost(game_state):
-                                        actions[unit_id] = [
-                                            unit.pickup(4, transfer_power)
-                                        ]
-                            elif unit.power >= unit.action_queue_cost(game_state) * 2:
-                                actions[unit_id] = [unit.pickup(resource_id, 2)]
+                            if factory.state.main_factory is not None:
+                                charge_threshold = (
+                                    unit.action_queue_cost(game_state) * 2
+                                    + unit.unit_cfg.INIT_POWER
+                                )
+                                charge_to = int(unit.unit_cfg.INIT_POWER * 1.5)
+                                if unit.power < charge_threshold:
+                                    transfer_power = charge_to - unit.power
+                                    if factory.power >= transfer_power:
+                                        if unit.power >= unit.action_queue_cost(game_state):
+                                            actions[unit_id] = [
+                                                unit.pickup(4, transfer_power)
+                                            ]
+                                elif unit.power >= unit.action_queue_cost(game_state) * 2:
+                                    actions[unit_id] = [unit.pickup(resource_id, 2)]
                         else:
                             min_power = (
                                 unit.action_queue_cost(game_state) * 2
@@ -793,12 +794,13 @@ class Agent:
                 for role, role_robots in factory_state.robot_missions.items():
                     for unit_id in role_robots:
                         del self.unit_states[unit_id]
+                        game_state.units[self.player][unit_id].state = None
         for factory_id in factory_ids_to_destroy:
             if self.factory_states[factory_id].role == FactoryRole.MAIN:
                 sub_factory_id = self.factory_states[factory_id].sub_factory
                 if sub_factory_id is not None and sub_factory_id in factory_ids:
                     self.factory_states[sub_factory_id].main_factory = None
-                    # TODO handle sub factory
+                    # TODO reassign sub factory as main factory
             else:
                 main_factory_id = self.factory_states[factory_id].main_factory
                 if main_factory_id in factory_ids:
