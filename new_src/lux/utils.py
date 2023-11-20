@@ -78,3 +78,9 @@ def conv2d(a, f, pad="zero", n=1):
         subM = strd(a, shape=s, strides=a.strides * 2)
         a = np.einsum("ij,ijkl->kl", f, subM)
     return a
+
+def remove_loc(locs, loc):
+    indices = np.any(
+        locs != loc, axis=-1
+    ).nonzero()
+    return locs[indices]

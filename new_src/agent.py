@@ -170,7 +170,7 @@ class Agent:
                     )
                     cost_map = self.get_move_cost_map(game_state)
 
-                    plans = None
+                    plans = []
                     spawn_loc = None
                     for _ in range(10):
                         spawn_loc = np.unravel_index(
@@ -180,6 +180,10 @@ class Agent:
                         for ice_loc in ice_loc_candidates:
                             for ore_loc in ore_loc_candidates:
                                 empty_factory_locs = get_factory_tiles(factory_pos)
+                                empty_factory_locs = remove_loc(
+                                    empty_factory_locs, factory_pos
+                                )
+
                                 f2f_plan = self._find_factory_to_factory_route(
                                     cost_map,
                                     spawn_factory_locs,
@@ -191,67 +195,76 @@ class Agent:
                                 if f2f_plan.max_route_robots > 6:
                                     continue
                                 closest_factory_loc = f2f_plan.destination
-                                empty_indices = np.any(
-                                    empty_factory_locs != closest_factory_loc, axis=-1
-                                ).nonzero()
-                                empty_factory_locs = empty_factory_locs[empty_indices]
-
-                                ice_dists = taxi_dist(empty_factory_locs, ice_loc)
-                                closest_ice_factory_tile = empty_factory_locs[
-                                    np.argmin(ice_dists)
-                                ]
-                                empty_indices = np.any(
-                                    empty_factory_locs != closest_ice_factory_tile,
-                                    axis=-1,
-                                ).nonzero()
-                                empty_factory_locs = empty_factory_locs[empty_indices]
-
-                                ore_dists = taxi_dist(empty_factory_locs, ore_loc)
-                                closest_ore_factory_tile = empty_factory_locs[
-                                    np.argmin(ore_dists)
-                                ]
-
-                                f2i_plan = self._find_factory_to_route(
-                                    cost_map,
-                                    [closest_ice_factory_tile],
-                                    [ice_loc],
-                                    [
-                                        ore_loc,
-                                        closest_ore_factory_tile,
-                                        *f2f_plan.route.path,
-                                    ],
+                                empty_factory_locs = remove_loc(
+                                    empty_factory_locs, closest_factory_loc
                                 )
-                                if f2i_plan is None:
-                                    continue
-                                closest_factory_loc = f2i_plan.source
-                                empty_indices = np.any(
-                                    empty_factory_locs != closest_factory_loc, axis=-1
-                                ).nonzero()
-                                empty_factory_locs = empty_factory_locs[empty_indices]
 
-                                f2o_plan = self._find_factory_to_route(
-                                    cost_map,
-                                    [closest_ore_factory_tile],
-                                    [ore_loc],
-                                    [*f2f_plan.route.path, *f2i_plan.route.path],
-                                )
-                                if f2o_plan is None:
+                                best_f2i_plan = None
+                                for empty_factory_loc in empty_factory_locs:
+                                    f2i_plan = self._find_factory_to_route(
+                                        cost_map,
+                                        [empty_factory_loc],
+                                        [ice_loc],
+                                        [
+                                            ore_loc,
+                                            *f2f_plan.route.path,
+                                        ],
+                                    )
+                                    if f2i_plan is None:
+                                        continue
+                                    if (
+                                        best_f2i_plan is None
+                                        or f2i_plan.route.cost
+                                        < best_f2i_plan.route.cost
+                                    ):
+                                        best_f2i_plan = f2i_plan
+                                if best_f2i_plan is None:
                                     continue
-                                plans = dict(ice=f2i_plan, ore=f2o_plan), dict(
-                                    factory_to_factory=f2f_plan
+                                f2i_plan = best_f2i_plan
+                                closest_ice_factory_tile = f2i_plan.source
+                                empty_factory_locs = remove_loc(
+                                    empty_factory_locs, closest_ice_factory_tile
+                                )
+
+                                best_f2o_plan = None
+                                for empty_factory_loc in empty_factory_locs:
+                                    f2o_plan = self._find_factory_to_route(
+                                        cost_map,
+                                        [empty_factory_loc],
+                                        [ore_loc],
+                                        [*f2f_plan.route.path, *f2i_plan.route.path],
+                                    )
+                                    if f2o_plan is None:
+                                        continue
+                                    if (
+                                        best_f2o_plan is None
+                                        or f2o_plan.route.cost
+                                        < best_f2o_plan.route.cost
+                                    ):
+                                        best_f2o_plan = f2o_plan
+                                if best_f2o_plan is None:
+                                    continue
+                                f2o_plan = best_f2o_plan
+                                plans.append(
+                                    (
+                                        f2i_plan.route.cost
+                                        + f2o_plan.route.cost
+                                        + f2f_plan.route.cost,
+                                        dict(ice=f2i_plan, ore=f2o_plan),
+                                        dict(factory_to_factory=f2f_plan),
+                                    )
                                 )
                                 break
-                            if plans is not None:
-                                break
-                        if plans is None:
+                        if len(plans) == 0:
                             score[spawn_loc[0], spawn_loc[1]] = 1e9
                             continue
                         else:
                             break
-                    if plans is None:
+                    if len(plans) == 0:
                         raise ValueError("No factory placement found")
-
-                    main_factory_plans, sub_factory_plans = plans
+                    _, main_factory_plans, sub_factory_plans = min(
+                        plans, key=lambda x: x[0]
+                    )
                     self.factory_states[
                         es_state.latest_main_factory
                     ].sub_factory = new_factory_id
@@ -420,11 +433,15 @@ class Agent:
                                 if unit.power < charge_threshold:
                                     transfer_power = charge_to - unit.power
                                     if factory.power >= transfer_power:
-                                        if unit.power >= unit.action_queue_cost(game_state):
+                                        if unit.power >= unit.action_queue_cost(
+                                            game_state
+                                        ):
                                             actions[unit_id] = [
                                                 unit.pickup(4, transfer_power)
                                             ]
-                                elif unit.power >= unit.action_queue_cost(game_state) * 2:
+                                elif (
+                                    unit.power >= unit.action_queue_cost(game_state) * 2
+                                ):
                                     actions[unit_id] = [unit.pickup(resource_id, 2)]
                         else:
                             min_power = (
