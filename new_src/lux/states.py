@@ -1,3 +1,4 @@
+import dataclasses
 from enum import IntEnum
 from dataclasses import dataclass, field
 from typing import Literal
@@ -110,20 +111,31 @@ class UnitState:
 
 
 @dataclass
-class ResourcePlan:
+class Plan:
     destination: Position
     source: Position
     route: Route
     max_route_robots: int
-    resource_threshold_light: int
+
+    @classmethod
+    def from_plan(cls, plan: "Plan"):
+        return cls(
+            destination=plan.destination,
+            source=plan.source,
+            route=plan.route,
+            max_route_robots=plan.max_route_robots,
+        )
 
 
 @dataclass
-class TransmitPlan:
-    target_pos: Position
-    source_pos: Position
-    transmit_route: Route
-    max_transmit_robots: int
+class ResourcePlan(Plan):
+    power_per_turn: int = None
+    last_power_pickup: int = None
+
+
+@dataclass
+class TransmitPlan(Plan):
+    pass
 
 
 class FactoryRole(IntEnum):

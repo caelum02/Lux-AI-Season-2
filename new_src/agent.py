@@ -7,6 +7,7 @@ import numpy as np
 from numpy.linalg import norm
 
 from lux.states import (
+    Plan,
     ResourcePlan,
     TransmitPlan,
     UnitState,
@@ -110,7 +111,7 @@ class Agent:
                     ]
 
                     print(
-                        f"{self.player} placed factory_{new_factory_id} at {spawn_loc}, factory score: {factory_score_spawn}, rubble score: {rubble_score_spawn}",
+                        f"{self.player} placed {new_factory_id} at {spawn_loc}, factory score: {factory_score_spawn}, rubble score: {rubble_score_spawn}",
                         file=sys.stderr,
                     )
 
@@ -128,24 +129,130 @@ class Agent:
                     all_locations = np.stack(
                         np.indices((map_size, map_size)), axis=-1
                     ).reshape(-1, 2)
-                    _id = es_state.latest_main_factory
-                    factory_pos = game_state.factories[self.player][_id].pos
+                    main_factory_id = es_state.latest_main_factory
+                    factory_pos = game_state.factories[self.player][main_factory_id].pos
                     factory_distance = taxi_distances(
                         all_locations, factory_pos
                     ).reshape(map_size, map_size)
-                    score = factory_distance + es_state.rubble_score * 0.1
+                    rubble_score = es_state.rubble_score
+                    normalized_rubble_score = (rubble_score / np.max(rubble_score)) * 0.5
+                    score = factory_distance + normalized_rubble_score
                     score += (obs["board"]["valid_spawns_mask"] == 0) * 1e9
-                    spawn_loc = np.unravel_index(
-                        np.argmin(score, axis=None), score.shape
-                    )
 
-                    main_factory_id = es_state.latest_main_factory
+                    ice_map = game_state.board.ice
+                    ice_locs = np.argwhere(ice_map == 1)
+                    ore_map = game_state.board.ore
+                    ore_locs = np.argwhere(ore_map == 1)
+                    main_factory_tiles = get_factory_tiles(factory_pos)
+                    ice_tile_distances = taxi_distances(ice_locs, main_factory_tiles)
+                    min_ice_tile_distances = np.min(ice_tile_distances)
+                    arg_ice_candidates = np.argwhere(
+                        ice_tile_distances == min_ice_tile_distances
+                    )
+                    ice_loc_candidates = set(
+                        map(tuple, ice_locs[arg_ice_candidates[:, 0]])
+                    )
+                    ore_tile_distances = taxi_distances(ore_locs, main_factory_tiles)
+                    min_ore_tile_distances = np.min(ore_tile_distances)
+                    arg_ore_candidates = np.argwhere(
+                        ore_tile_distances == min_ore_tile_distances
+                    )
+                    ore_loc_candidates = set(
+                        map(tuple, ore_locs[arg_ore_candidates[:, 0]])
+                    )
+                    cost_map = self.get_move_cost_map(game_state)
+
+                    plans = None
+                    spawn_loc = None
+                    for _ in range(10):
+                        spawn_loc = np.unravel_index(
+                            np.argmin(score, axis=None), score.shape
+                        )
+                        spawn_factory_locs = get_factory_tiles(spawn_loc)
+                        for ice_loc in ice_loc_candidates:
+                            for ore_loc in ore_loc_candidates:
+                                empty_factory_locs = get_factory_tiles(factory_pos)
+                                f2f_plan = self._find_factory_to_factory_route(
+                                    cost_map,
+                                    spawn_factory_locs,
+                                    empty_factory_locs,
+                                    [ice_loc, ore_loc],
+                                )
+                                if f2f_plan is None:
+                                    continue
+                                if f2f_plan.max_route_robots > 6:
+                                    continue
+                                closest_factory_loc = f2f_plan.destination
+                                empty_indices = np.any(
+                                    empty_factory_locs != closest_factory_loc, axis=-1
+                                ).nonzero()
+                                empty_factory_locs = empty_factory_locs[empty_indices]
+
+                                ice_dists = taxi_dist(empty_factory_locs, ice_loc)
+                                closest_ice_factory_tile = empty_factory_locs[
+                                    np.argmin(ice_dists)
+                                ]
+                                empty_indices = np.any(
+                                    empty_factory_locs != closest_ice_factory_tile,
+                                    axis=-1,
+                                ).nonzero()
+                                empty_factory_locs = empty_factory_locs[empty_indices]
+
+                                ore_dists = taxi_dist(empty_factory_locs, ore_loc)
+                                closest_ore_factory_tile = empty_factory_locs[
+                                    np.argmin(ore_dists)
+                                ]
+
+                                f2i_plan = self._find_factory_to_resource_route(
+                                    cost_map,
+                                    [closest_ice_factory_tile],
+                                    [ice_loc],
+                                    [
+                                        ore_loc,
+                                        closest_ore_factory_tile,
+                                        *f2f_plan.route.path,
+                                    ],
+                                )
+                                if f2i_plan is None:
+                                    continue
+                                closest_factory_loc = f2i_plan.source
+                                empty_indices = np.any(
+                                    empty_factory_locs != closest_factory_loc, axis=-1
+                                ).nonzero()
+                                empty_factory_locs = empty_factory_locs[empty_indices]
+
+                                f2o_plan = self._find_factory_to_resource_route(
+                                    cost_map,
+                                    [closest_ore_factory_tile],
+                                    [ore_loc],
+                                    [*f2f_plan.route.path, *f2i_plan.route.path],
+                                )
+                                if f2o_plan is None:
+                                    continue
+                                plans = dict(ice=f2i_plan, ore=f2o_plan), dict(
+                                    factory_to_factory=f2f_plan
+                                )
+                                break
+                            if plans is not None:
+                                break
+                        if plans is None:
+                            score[spawn_loc[0], spawn_loc[1]] = 1e9
+                            continue
+                        else:
+                            break
+                    if plans is None:
+                        raise ValueError("No factory placement found")
+
+                    main_factory_plans, sub_factory_plans = plans
                     self.factory_states[
                         es_state.latest_main_factory
                     ].sub_factory = new_factory_id
                     self.factory_states[new_factory_id] = FactoryState(
-                        role=FactoryRole.SUB, main_factory=main_factory_id
+                        role=FactoryRole.SUB,
+                        main_factory=main_factory_id,
+                        plans=sub_factory_plans,
                     )
+                    self.factory_states[main_factory_id].plans = main_factory_plans
 
                     es_state.latest_main_factory = None
                     es_state.sub_factory_map[main_factory_id] = new_factory_id
@@ -154,7 +261,15 @@ class Agent:
 
                     # Debug message
                     print(
-                        f"{self.player} placed factory_{new_factory_id} at {spawn_loc}, main: {main_factory_id}",
+                        f"{self.player} placed {new_factory_id} at {spawn_loc}, main: {main_factory_id}",
+                        file=sys.stderr,
+                    )
+                    print(
+                        f"f2f: {sub_factory_plans['factory_to_factory'].route.path}",
+                        file=sys.stderr,
+                    )
+                    print(
+                        f"ice: {main_factory_plans['ice'].route.path}, ore: {main_factory_plans['ore'].route.path}",
                         file=sys.stderr,
                     )
 
@@ -481,6 +596,7 @@ class Agent:
         if factory.role == FactoryRole.SUB:
             mission = UnitMission.PIPE_FACTORY_TO_FACTORY
         else:
+            # TODO check if we can override miner (if unit.unit_type == "HEAVY")
             if factory.state.robot_missions[UnitMission.PIPE_MINE_ICE] == 0:
                 mission = UnitMission.PIPE_MINE_ICE
             elif factory.state.robot_missions[UnitMission.PIPE_MINE_ORE] == 0:
@@ -490,7 +606,6 @@ class Agent:
                 < factory.state.resources["ice"].max_resource_robots
             ):
                 mission = UnitMission.PIPE_FACTORY_TO_ICE
-                need_more_ice_robot = len(factory.state.robot_missions)
             elif (
                 len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]) + 1
                 < factory.state.resources["ore"].max_resource_robots
@@ -529,6 +644,51 @@ class Agent:
             + self.env_cfg.ROBOTS["LIGHT"].MOVE_COST
         )
 
+    def _find_route(self, cost_map, source_locs, destination_locs, ban_list=[]):
+        if len(source_locs) > 1 or len(destination_locs) > 1:
+            distances = taxi_distances(destination_locs, source_locs)
+            argmin_sub_factory, argmin_factory = np.unravel_index(
+                np.argmin(distances), distances.shape
+            )
+            closest_destination_loc = destination_locs[argmin_sub_factory]
+            closest_source_loc = source_locs[argmin_factory]
+        else:
+            closest_destination_loc = destination_locs[0]
+            closest_source_loc = source_locs[0]
+
+        route = get_shortest_loop(
+            cost_map,
+            closest_destination_loc,
+            closest_source_loc,
+            ban_list=ban_list,
+        )
+        if route is None:
+            return None
+        return Plan(
+            destination=closest_destination_loc,
+            source=closest_source_loc,
+            route=route,
+            max_route_robots=len(route),
+        )
+
+    def _find_factory_to_factory_route(
+        self, cost_map, empty_factory_locs, sub_factory_locs, ban_list=[]
+    ):
+        route = self._find_route(
+            cost_map, empty_factory_locs, sub_factory_locs, ban_list
+        )
+        if route is None:
+            return None
+        return TransmitPlan.from_plan(route)
+
+    def _find_factory_to_resource_route(
+        self, cost_map, empty_factory_locs, resource_locs, ban_list=[]
+    ):
+        route = self._find_route(cost_map, empty_factory_locs, resource_locs, ban_list)
+        if route is None:
+            return None
+        return ResourcePlan.from_plan(route)
+
     def _register_factories(self, game_state):
         """
         initialize self.factory_states
@@ -540,53 +700,14 @@ class Agent:
         ore_locs = np.argwhere(ore_map == 1)
 
         factories = game_state.factories[self.player]
+        cost_map = self.get_move_cost_map(game_state)
 
         for factory_id, factory in factories.items():
             factory_state = self.factory_states[factory_id]
-            cost_map = self.get_move_cost_map(game_state)
-            empty_factory_locs = get_factory_tiles(factory.pos)
-
-            # Sub-factory is handled with its main factory
-            if factory_state.role == FactoryRole.SUB:
+            if factory_state.plans is not None:
                 continue
 
-            factory_to_factory_path = []
-
-            # Handle sub-factory if exists
-            if factory_state.sub_factory is not None:
-                sub_factory_id = factory_state.sub_factory
-                sub_factory = factories[sub_factory_id]
-                sub_factory_locs = get_factory_tiles(sub_factory.pos)
-
-                distances = taxi_distances(sub_factory_locs, empty_factory_locs)
-                argmin_sub_factory, argmin_factory = np.unravel_index(
-                    np.argmin(distances), distances.shape
-                )
-                closest_sub_factory_loc = sub_factory_locs[argmin_sub_factory]
-                closest_factory_loc = empty_factory_locs[argmin_factory]
-
-                empty_indices = np.any(
-                    empty_factory_locs != closest_factory_loc, axis=-1
-                ).nonzero()
-                empty_factory_locs = empty_factory_locs[empty_indices]
-
-                factory_to_factory_route = get_shortest_loop(
-                    cost_map,
-                    closest_sub_factory_loc,
-                    closest_factory_loc,
-                    ban_list=[*ice_locs, *ore_locs],
-                )
-                if factory_to_factory_route is None:
-                    raise ValueError("No factory to factory route found")
-                factory_to_factory_path = factory_to_factory_route.path
-                self.factory_states[sub_factory_id].plans = {
-                    "factory_to_factory": TransmitPlan(
-                        target_pos=closest_factory_loc,
-                        source_pos=closest_sub_factory_loc,
-                        transmit_route=factory_to_factory_route,
-                        max_transmit_robots=len(factory_to_factory_route),
-                    )
-                }
+            empty_factory_locs = get_factory_tiles(factory.pos)
 
             ice_tile_distances = taxi_distances(ice_locs, empty_factory_locs)
             argmin_ice_tile, argmin_factory_tile = np.unravel_index(
@@ -611,8 +732,7 @@ class Agent:
                 cost_map,
                 closest_ice_factory_tile,
                 closest_ice_tile,
-                ban_list=[closest_ore_tile, closest_ore_factory_tile]
-                + factory_to_factory_path,
+                ban_list=[closest_ore_tile, closest_ore_factory_tile],
             )
             if ice_route is None:
                 raise ValueError("No ice route found")
@@ -621,26 +741,28 @@ class Agent:
                 cost_map,
                 closest_ore_factory_tile,
                 closest_ore_tile,
-                ban_list=ice_route.path + factory_to_factory_path,
+                ban_list=ice_route.path,
             )
             if ore_route is None:
                 raise ValueError("No ore route found")
 
-            self.factory_states[factory_id].plans = dict(
+            factory_state.plans = dict(
                 ice=ResourcePlan(
                     destination=closest_ice_tile,
                     source=closest_ice_factory_tile,
                     route=ice_route,
                     max_route_robots=len(ice_route),
-                    resource_threshold_light=8,
                 ),
                 ore=ResourcePlan(
                     destination=closest_ore_tile,
                     source=closest_ore_factory_tile,
                     route=ore_route,
                     max_route_robots=len(ore_route),
-                    resource_threshold_light=8,
                 ),
+            )
+            print(
+                f"{factory_id}: ice: {ice_route.path}, ore: {ore_route.path}",
+                file=sys.stderr,
             )
 
             factory.state = self.factory_states[factory_id]
@@ -761,11 +883,22 @@ class Agent:
                     heavy_robots = [
                         robot for robot in robots if robot.unit_type == "HEAVY"
                     ]
-                    required_transmitters = sum(map(lambda plan: plan.max_route_robots - 1, factory.state.plans.values()))
-                    if len(heavy_robots) < 2:
-                        if factory.can_build_heavy(game_state):
+                    required_transmitters = sum(
+                        map(
+                            lambda plan: plan.max_route_robots,
+                            factory.state.plans.values(),
+                        )
+                    )
+                    if len(robots) < 2:
+                        if factory.can_build_heavy(
+                            game_state
+                        ):  # TODO check if we can build one more light if len(robots) == 0
                             actions[factory_id] = factory.build_heavy()
-                    elif len(light_robots) < required_transmitters:
+                        elif factory.can_build_light(game_state):
+                            actions[factory_id] = factory.build_light()
+                        else:
+                            ...  # Doomed
+                    elif len(robots) < required_transmitters:
                         if factory.can_build_light(game_state):
                             actions[factory_id] = factory.build_light()
                     else:
@@ -775,7 +908,7 @@ class Agent:
             elif factory.state.role == FactoryRole.SUB:
                 required_transmitters = factory.state.plans[
                     "factory_to_factory"
-                ].max_transmit_robots
+                ].max_route_robots
                 robots = sum(factory.state.robot_missions.values(), start=[])
                 if len(robots) < required_transmitters:
                     if factory.can_build_light(game_state):
