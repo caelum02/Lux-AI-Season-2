@@ -134,3 +134,19 @@ class EnvConfig:
         data["ROBOTS"]["LIGHT"] = UnitConfig(**data["ROBOTS"]["LIGHT"])
         data["ROBOTS"]["HEAVY"] = UnitConfig(**data["ROBOTS"]["HEAVY"])
         return cls(**data)
+
+
+resource_ids = {
+    "ice": 0,
+    "ore": 1,
+    "water": 2,
+    "metal": 3,
+    "power": 4,
+}
+
+resource_ids_inv = {
+    0: "ice",
+    1: "ore",
+    2: "water",
+    3: "metal",
+}

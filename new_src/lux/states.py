@@ -24,12 +24,13 @@ class Route:
 
 class UnitStateEnum(IntEnum):
     INITIAL = 0
-    MOVING_TO_RESOURCE = 1
-    DIGGING = 2
-    MOVING_TO_FACTORY = 3
-    DROPPING_RESOURCE = 4
-    RECHARGING = 5
-    TRANSFERING_RESOURCE = 6
+    MOVING_TO_START = 1
+    MOVING_TO_TARGET = 2
+    PERFORMING_ROLE = 3
+    PERFORMING_SECONDARY_ROLE = 4
+    MOVING_TO_FACTORY = 5
+    DROPPING_RESOURCE = 6
+    PICKING_RESOURCE = 7
 
 
 class UnitMission(IntEnum):
@@ -46,6 +47,8 @@ class UnitMission(IntEnum):
             return "ice"
         elif self in [UnitMission.PIPE_FACTORY_TO_ORE, UnitMission.PIPE_MINE_ORE]:
             return "ore"
+        elif self == UnitMission.PIPE_FACTORY_TO_FACTORY:
+            return "factory_to_factory"
         else:
             return None
 
@@ -82,20 +85,20 @@ class UnitState:
     resource_type: Resource | None = None
     owner: FactoryId | None = None
     # role : UnitRole | None = None
-    # stay_pos : Position | None = None
+    # target_pos : Position | None = None
     # Invalid state when role or idle_pos changed
 
     def __post_init__(self):
         self.__role = None
-        self.__stay_pos = None
+        self.__target_pos = None
 
     @property
     def role(self):
         return self.__role
 
     @property
-    def stay_pos(self):
-        return self.__stay_pos
+    def target_pos(self):
+        return self.__target_pos
 
     @role.setter
     def set_role(self, role: UnitRole):
@@ -103,10 +106,10 @@ class UnitState:
             self.__role = role
             self.state = UnitStateEnum.INITIAL
 
-    @stay_pos.setter
-    def set_stay_pos(self, pos: Position):
-        if np.any(self.__stay_pos != pos):
-            self.__stay_pos = pos
+    @target_pos.setter
+    def set_target_pos(self, pos: Position):
+        if np.any(self.__target_pos != pos):
+            self.__target_pos = pos
             self.state = UnitStateEnum.INITIAL
 
 
@@ -150,6 +153,7 @@ class FactoryState:
     role: FactoryRole | None = None
     main_factory: FactoryId | None = None
     sub_factory: FactoryId | None = None
+    ban_list : list[Position] | None = None
 
     def __post_init__(self):
         if self.robot_missions is None:

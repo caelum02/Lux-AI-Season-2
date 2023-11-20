@@ -3,6 +3,8 @@ from lux.kit import obs_to_game_state, EnvConfig, GameState
 from lux.utils import *
 from lux.pathfinding import get_shortest_loop
 from lux.forward_sim import stop_movement_collisions
+from lux.config import resource_ids
+
 import numpy as np
 from numpy.linalg import norm
 
@@ -21,6 +23,9 @@ from lux.states import (
     UnitId,
 )
 
+from lux.factory import Factory
+from lux.unit import Unit
+
 
 class Agent:
     def __init__(self, player: str, env_cfg: EnvConfig) -> None:
@@ -35,6 +40,7 @@ class Agent:
 
         self.unit_states: dict[UnitId, UnitState] = {}
         self.factory_states: dict[FactoryId, FactoryState] = {}
+        self.move_cost_map = -1, None
 
     def _num_factories(self, game_state: GameState) -> int:
         factories = game_state.factories
@@ -135,7 +141,9 @@ class Agent:
                         all_locations, factory_pos
                     ).reshape(map_size, map_size)
                     rubble_score = es_state.rubble_score
-                    normalized_rubble_score = (rubble_score / np.max(rubble_score)) * 0.5
+                    normalized_rubble_score = (
+                        rubble_score / np.max(rubble_score)
+                    ) * 0.5
                     score = factory_distance + normalized_rubble_score
                     score += (obs["board"]["valid_spawns_mask"] == 0) * 1e9
 
@@ -253,7 +261,11 @@ class Agent:
                         plans=sub_factory_plans,
                     )
                     self.factory_states[main_factory_id].plans = main_factory_plans
-
+                    self.factory_states[main_factory_id].ban_list = [
+                        *f2f_plan.route.path,
+                        *f2i_plan.route.path,
+                        *f2o_plan.route.path,
+                    ]
                     es_state.latest_main_factory = None
                     es_state.sub_factory_map[main_factory_id] = new_factory_id
 
@@ -286,7 +298,7 @@ class Agent:
         return factory_centers, factory_units, factory_ids
 
     def handle_robot_actions(
-        self, game_state, factory, unit, actions, factory_pickup_robots
+        self, game_state, factory: Factory, unit: Unit, actions, factory_pickup_robots
     ):
         unit_id = unit.unit_id
         factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
@@ -296,246 +308,222 @@ class Agent:
         resource_plan = None
         if resource_type is not None:
             resource_plan = factory.state.resources[resource_type]
-            res_threshold = resource_plan.resource_threshold_light
-            if unit.unit_type == "HEAVY":
-                res_threshold *= 10
+            if resource_type == "factory_to_factory":
+                resource_id = resource_ids["water"]
+            else:
+                resource_id = resource_ids[resource_type]
 
-        if unit.state.role is None:
-            raise ValueError("Unit role is None")
-        if unit.state.role.is_stationary:
-            start_pos = unit.state.idle_pos
-        elif unit.state.role.is_transporter:
-            start_pos = resource_plan.resource_factory_pos
-        elif unit.state.role == UnitRole.RUBBLE_DIGGER:
-            ...  # TODO
-        else:
-            raise ValueError("Invalid unit role")
+        route = unit.state.following_route
+        route_step = None
+        robots_multiple = (
+            factory_pickup_robots
+            if unit.unit_type == "LIGHT"
+            else factory_pickup_robots / 10
+        )
+        if route is not None:
+            if tuple(unit.pos) not in route.path:
+                unit.state.state = UnitStateEnum.MOVING_TO_START
+            else:
+                route_step = route.path.index(tuple(unit.pos))
 
-        is_resource_tick = game_state.real_env_step % 2 == 0
-        is_power_transfer_tick = not is_resource_tick
+        def move_to(target, avoid=True) -> bool:
+            if np.all(target == unit.pos):
+                return True
+            else:
+                route_to_target = get_shortest_loop(
+                    self.get_move_cost_map(game_state),
+                    unit.pos,
+                    target,
+                    ban_list=factory.state.ban_list if avoid else [],
+                )
+                if route_to_target is None:
+                    raise ValueError("No route found")
+                direction = direction_to(unit.pos, route_to_target.path[1])
+                move_cost = unit.move_cost(game_state, direction)
+                if (
+                    move_cost is not None
+                    and unit.power >= move_cost + unit.action_queue_cost(game_state)
+                ):
+                    actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+                return False
 
-        def next_state(current, mission, role):
-            if role.is_stationary:
-                if current == UnitStateEnum.INITIAL:
-                    if role.is_miner:
-                        return UnitStateEnum.DIGGING
-                    else:
-                        return UnitStateEnum.TRANSFERING_RESOURCE
-                elif current == UnitStateEnum.DIGGING:
-                    return UnitStateEnum.TRANSFERING_RESOURCE
-                elif current == UnitStateEnum.TRANSFERING_RESOURCE:
-                    return UnitStateEnum.DIGGING
+        def follow_route_to(target) -> bool:
+            target_step = route.path.index(tuple(target))
+            if target_step > route_step:
+                direction = direction_to(unit.pos, route.path[route_step + 1])
+            elif target_step < route_step:
+                direction = direction_to(unit.pos, route.path[route_step - 1])
+            else:
+                return True
+            move_cost = unit.move_cost(game_state, direction)
+            if (
+                move_cost is not None
+                and unit.power >= move_cost + unit.action_queue_cost(game_state)
+            ):
+                actions[unit_id] = [unit.move(direction)]
+            return False
 
         for _ in range(len(UnitStateEnum)):
-            if unit.state.role.is_stationary:
-                if np.any(start_pos != unit.pos):
-                    unit.state.state = UnitStateEnum.INITIAL
-                    continue
-                if unit.state.state == UnitStateEnum.INITIAL:
-                    target = start_pos
-                    if np.all(target == unit.pos):
-                        unit.state.state = next_state(
-                            unit.state.state, unit.state.mission, unit.state.role
-                        )
-                    else:
-                        direction = direction_to(
-                            unit.pos, target
-                        )  # TODO better pathfinding
-                        move_cost = unit.move_cost(game_state, direction)
-                        if (
-                            move_cost is not None
-                            and unit.power
-                            >= move_cost + unit.action_queue_cost(game_state)
-                        ):
-                            actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                        break
-                elif unit.state.state == UnitStateEnum.DIGGING:
-                    if getattr(unit.cargo, resource_type) < res_threshold:
-                        if unit.power >= unit.dig_cost(
-                            game_state
-                        ) + unit.action_queue_cost(game_state):
-                            actions[unit_id] = [unit.dig(repeat=0, n=1)]
-                        break
-                    else:
-                        unit.state.state = next_state(
-                            unit.state.state, unit.state.mission, unit.state.role
-                        )
-                elif unit.state.state == UnitStateEnum.TRANSFERING_RESOURCE:
-                    if is_resource_tick:
-                        route = resource_plan.resource_route
-                        try:
-                            route_step = route.path.index(tuple(unit.pos))
-                        except ValueError:
-                            # not in route
-                            unit.state.state = UnitStateEnum.INITIAL
-                            continue
-                        if route_step == 0:
-                            pickup_power = 100
-                            if unit.power < pickup_power:
-                                power = unit.power - pickup_power
-                                if factory.power >= power:
-                                    if unit.power >= unit.action_queue_cost(game_state):
-                                        actions[unit_id] = [
-                                            unit.pickup(4, power, repeat=0, n=1)
-                                        ]
-                            break
-                        else:
-                            before_in_route = route.path[route_step - 1]
-                        direction = direction_to(unit.pos, before_in_route)
-                        if getattr(unit.cargo, resource_type) > 0:
-                            if unit.power >= unit.action_queue_cost(game_state):
-                                resource_id = 0 if resource_type == "ice" else 1
-                                actions[unit_id] = [
-                                    unit.transfer(
-                                        direction,
-                                        resource_type,
-                                        getattr(unit.cargo, resource_type),
-                                        repeat=0,
-                                        n=1,
-                                    )
-                                ]
-                        elif unit.state.role.is_miner:
-                            unit.state.state = next_state(
-                                unit.state.state, unit.state.mission, unit.state.role
-                            )
-                        break
-                    elif is_power_transfer_tick:
-                        route = resource_plan.resource_route
-                        try:
-                            route_step = route.path.index(tuple(unit.pos))
-                        except ValueError:
-                            # not in route
-                            unit.state.state = UnitStateEnum.INITIAL
-                            continue
-                        if route_step == len(route.path) - 1:
-                            break
-                        else:
-                            next_in_route = route.path[route_step + 1]
-                            direction = direction_to(unit.pos, next_in_route)
-                            min_remaining_power = 4 * unit.action_queue_cost(game_state)
-                            if unit.power >= min_remaining_power:
-                                power = unit.power - min_remaining_power
-                                actions[unit_id] = [
-                                    unit.transfer(direction, 4, power, repeat=0, n=1)
-                                ]
-                continue
             if unit.state.state == UnitStateEnum.INITIAL:
-                target = start_pos
-                if np.all(target == unit.pos):
-                    unit.state.state = next_state(
-                        unit.state.state, unit.state.mission, unit.state.role
-                    )
-                else:
-                    direction = direction_to(
-                        unit.pos, target
-                    )  # TODO better pathfinding
-                    move_cost = unit.move_cost(game_state, direction)
-                    if (
-                        move_cost is not None
-                        and unit.power >= move_cost + unit.action_queue_cost(game_state)
-                    ):
-                        actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                    break
-
-            if unit.state.state == UnitStateEnum.MOVING_TO_RESOURCE:
-                target = resource_plan.resource_pos
-                if np.all(target == unit.pos):
-                    unit.state.state = UnitStateEnum.DIGGING
-                else:
-                    route = resource_plan.resource_route
-                    try:
-                        route_step = route.path.index(tuple(unit.pos))
-                    except ValueError:
-                        # not in route
-                        unit.state.state = UnitStateEnum.INITIAL
+                if route is not None:
+                    # if unit is not on route, state is already MOVING_TO_START
+                    # unit is always on route
+                    unit.state.state = UnitStateEnum.MOVING_TO_TARGET
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.MOVING_TO_START:
+                arrived = move_to(route.path[0])
+                if arrived:
+                    unit.state.state = UnitStateEnum.PICKING_RESOURCE
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.PICKING_RESOURCE:
+                if can_pickup_from_factory:
+                    target_power = (
+                        unit.unit_cfg.INIT_POWER * 2
+                    )  # TODO calculate target power
+                    if unit.power < target_power:
+                        if (
+                            target_power - unit.power
+                        ) * robots_multiple <= factory.power:
+                            pickup_power = target_power - unit.power
+                            actions[unit_id] = [unit.pickup(4, pickup_power)]
+                    else:
+                        unit.state.state = UnitStateEnum.MOVING_TO_TARGET
                         continue
-                    next_in_route = route.path[route_step + 1]
-                    direction = direction_to(unit.pos, next_in_route)
-                    move_cost = unit.move_cost(game_state, direction)
-                    if (
-                        move_cost is not None
-                        and unit.power >= move_cost + unit.action_queue_cost(game_state)
-                    ):
-                        actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                    break
-            if unit.state.state == UnitStateEnum.DIGGING:
-                if getattr(unit.cargo, resource_type) < res_threshold:
-                    if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(
-                        game_state
-                    ):
-                        actions[unit_id] = [unit.dig(repeat=0, n=1)]
-                    break
                 else:
                     unit.state.state = UnitStateEnum.MOVING_TO_FACTORY
-            if unit.state.state == UnitStateEnum.MOVING_TO_FACTORY:
-                target = resource_plan.resource_factory_pos
-                if np.all(target == unit.pos):
-                    unit.state.state = UnitStateEnum.DROPPING_RESOURCE
-                else:
-                    route = resource_plan.resource_route
-                    try:
-                        route_step = route.path.index(tuple(unit.pos))
-                    except ValueError:
-                        # not in route
-                        unit.state.state = UnitStateEnum.INITIAL
-                        continue
-                    next_in_route = route.path[route_step + 1]
-                    direction = direction_to(unit.pos, next_in_route)
-                    move_cost = unit.move_cost(game_state, direction)
-                    if (
-                        move_cost is not None
-                        and unit.power >= move_cost + unit.action_queue_cost(game_state)
-                    ):
-                        actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
-                    break
-            if unit.state.state == UnitStateEnum.DROPPING_RESOURCE:
-                if getattr(unit.cargo, resource_type) > 0:
-                    if unit.power >= unit.action_queue_cost(game_state):
-                        direction = 0
-                        resource_id = 0 if resource_type == "ice" else 1
-                        actions[unit_id] = [
-                            unit.transfer(
-                                direction,
-                                resource_id,
-                                getattr(unit.cargo, resource_type),
-                                repeat=0,
-                                n=1,
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.MOVING_TO_TARGET:
+                arrived = follow_route_to(unit.state.target_pos)
+                if arrived:
+                    unit.state.state = UnitStateEnum.PERFORMING_ROLE
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.PERFORMING_ROLE:
+                if unit.state.role.is_stationary:
+                    odd = (game_state.env_steps % 2) ^ (route_step % 2)
+                    if odd:
+                        if unit.state.role.is_miner:
+                            if (
+                                unit.power
+                                >= unit.dig_cost(game_state)
+                                + unit.action_queue_cost(game_state) * 2
+                            ):
+                                actions[unit_id] = [unit.dig(repeat=0, n=1)]
+                        elif (
+                            resource_type == "factory_to_factory"
+                            and route_step == len(route) - 1
+                        ):
+                            charge_threshold = (
+                                unit.action_queue_cost(game_state) * 2
+                                + unit.unit_cfg["INIT_POWER"]
                             )
-                        ]
-                    break
-                else:
-                    unit.state.state = UnitStateEnum.RECHARGING
-                    if unit.unit_type == "LIGHT":
-                        factory_pickup_robots += 1
-                    else:
-                        factory_pickup_robots += 10
-            if unit.state.state == UnitStateEnum.RECHARGING:
-                target_power = unit.unit_cfg.INIT_POWER
-                robots_multiple = (
-                    factory_pickup_robots
-                    if unit.unit_type == "LIGHT"
-                    else factory_pickup_robots / 10
-                )
-                if unit.power < target_power:
-                    if (
-                        target_power - unit.power
-                    ) * robots_multiple <= factory.power:  # NOTE naive setup. need to check all needs
-                        power = target_power - unit.power
-                        actions[unit_id] = [unit.pickup(4, power, repeat=0, n=1)]
-                        break
-                    else:
-                        if len(unit.action_queue) == 0:
-                            actions[
-                                unit_id
-                            ] = (
-                                []
-                            )  # may need to move(0) if there is existing action queue
-                            del actions[unit_id]  # Save action queue update cost
+                            charge_to = unit.unit_cfg["INIT_POWER"] * 2
+                            if unit.power < charge_threshold:
+                                transfer_power = charge_to - unit.power
+                                if factory.power >= transfer_power * robots_multiple:
+                                    if unit.power >= unit.action_queue_cost(game_state):
+                                        actions[unit_id] = [
+                                            unit.pickup(4, transfer_power)
+                                        ]
+                            elif unit.power >= unit.action_queue_cost(game_state) * 2:
+                                actions[unit_id] = [unit.pickup(resource_id, 2)]
                         else:
-                            actions[unit_id] = unit.move(0, repeat=0, n=1)
-                        break
+                            min_power = (
+                                unit.action_queue_cost(game_state) * 2
+                                + unit.unit_cfg["INIT_POWER"]
+                            )
+                            if unit.power > min_power:
+                                transfer_power = unit.power - min_power
+                                direction = direction_to(
+                                    unit.pos, route.path[route_step + 1]
+                                )
+                                actions[unit_id] = [
+                                    unit.transfer(direction, 4, transfer_power)
+                                ]
+                    else:
+                        if route_step == 0:
+                            pickup_amount = int(
+                                100 / robots_multiple
+                            )  # TODO calculate pickup amount
+                            if unit.power >= unit.action_queue_cost(game_state) * 2:
+                                actions[unit_id] = [unit.pickup(4, pickup_amount)]
+                        else:
+                            direction = direction_to(
+                                unit.pos, route.path[route_step - 1]
+                            )
+                            if unit.cargo.from_id(resource_id) > 0:
+                                if unit.power >= unit.action_queue_cost(game_state):
+                                    actions[unit_id] = [
+                                        unit.transfer(
+                                            direction,
+                                            resource_id,
+                                            unit.cargo.from_id(resource_id),
+                                        )
+                                    ]
                 else:
-                    unit.state.state = UnitStateEnum.MOVING_TO_RESOURCE
+                    if resource_type in ["ice", "ore"]:
+                        resource_threshold = 6  # TODO calculate resource threshold
+                        if unit.unit_type == "HEAVY":
+                            resource_threshold *= 10
+                    else:
+                        resource_threshold = 2
+                    if unit.cargo.from_id(resource_id) < resource_threshold:
+                        if unit.state.role.is_miner:
+                            if (
+                                unit.power
+                                >= unit.dig_cost(game_state)
+                                + unit.action_queue_cost(game_state) * 2
+                            ):
+                                actions[unit_id] = [unit.dig(repeat=0, n=1)]
+                        elif (
+                            resource_type == "factory_to_factory"
+                            and route_step == len(route) - 1
+                        ):
+                            if unit.power >= unit.action_queue_cost(game_state):
+                                actions[unit_id] = [unit.pickup(resource_id, 2)]
+                        else:
+                            # only have to transfer power
+                            min_power = (
+                                unit.action_queue_cost(game_state) * 2
+                                + unit.unit_cfg["INIT_POWER"]
+                            )
+                            if unit.power > min_power:
+                                transfer_power = unit.power - min_power
+                                direction = direction_to(
+                                    unit.pos, route.path[route_step + 1]
+                                )
+                                actions[unit_id] = [
+                                    unit.transfer(direction, 4, transfer_power)
+                                ]
+                    else:
+                        unit.state.state = UnitStateEnum.MOVING_TO_FACTORY
+                        continue
+                break
+            if unit.state.state == UnitStateEnum.MOVING_TO_FACTORY:
+                arrived = follow_route_to(route.start)
+                if arrived:
+                    unit.state.state = UnitStateEnum.TRANSFERING_RESOURCE
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.TRANSFERING_RESOURCE:
+                if can_transfer_to_factory:
+                    if unit.cargo.from_id(resource_id) > 0:
+                        if unit.power >= unit.action_queue_cost(game_state):
+                            actions[unit_id] = [
+                                unit.transfer(
+                                    0, resource_id, unit.cargo.from_id(resource_id)
+                                )
+                            ]
+                    else:
+                        unit.state.state = UnitStateEnum.PICKING_RESOURCE
+                        continue
+                else:
+                    unit.state.state = UnitStateEnum.MOVING_TO_FACTORY
+                    continue
+                break
         else:
             print("Unit state machine failed to break", file=sys.stderr)
             raise ValueError()
@@ -620,9 +608,9 @@ class Agent:
         if mission.resource_type is not None:
             unit.state.following_route = factory.state.resources[
                 mission.resource_type
-            ].resource_route
+            ].route
         if mission == UnitMission.PIPE_FACTORY_TO_FACTORY:
-            unit.state.following_route = None  # TODO factory-factory route
+            unit.state.following_route = factory.state.plans["factory_to_factory"].route
 
         self._assign_role_to_unit(unit, factory)
 
@@ -638,11 +626,16 @@ class Agent:
             if factory_id in self.factory_states:
                 factory.state = self.factory_states[factory_id]
 
-    def get_move_cost_map(self, game_state):
-        return (
-            game_state.board.rubble * self.env_cfg.ROBOTS["LIGHT"].RUBBLE_MOVEMENT_COST
-            + self.env_cfg.ROBOTS["LIGHT"].MOVE_COST
-        )
+    def get_move_cost_map(self, game_state: GameState):
+        turn, cost_map = self.move_cost_map
+        if game_state.env_steps != turn:
+            cost_map = (
+                game_state.board.rubble
+                * self.env_cfg.ROBOTS["LIGHT"].RUBBLE_MOVEMENT_COST
+                + self.env_cfg.ROBOTS["LIGHT"].MOVE_COST
+            )
+            self.move_cost_map = game_state.env_steps, cost_map
+        return cost_map
 
     def _find_route(self, cost_map, source_locs, destination_locs, ban_list=[]):
         if len(source_locs) > 1 or len(destination_locs) > 1:
@@ -760,6 +753,7 @@ class Agent:
                     max_route_robots=len(ore_route),
                 ),
             )
+            factory_state.ban_list = [*ice_route.path, *ore_route.path]
             print(
                 f"{factory_id}: ice: {ice_route.path}, ore: {ore_route.path}",
                 file=sys.stderr,
