@@ -31,6 +31,7 @@ class UnitStateEnum(IntEnum):
     MOVING_TO_FACTORY = 5
     DROPPING_RESOURCE = 6
     PICKING_RESOURCE = 7
+    
 
 
 class UnitMission(IntEnum):

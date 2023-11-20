@@ -323,7 +323,10 @@ class Agent:
         if resource_type is not None:
             resource_plan = factory.state.plans[resource_type]
             if resource_type == "factory_to_factory":
-                resource_id = resource_ids["water"]
+                if factory.power > 600 and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) == 0:
+                    resource_id = resource_ids["metal"]
+                else:
+                    resource_id = resource_ids['water']
             else:
                 resource_id = resource_ids[resource_type]
 
@@ -372,6 +375,13 @@ class Agent:
             ):
                 actions[unit_id] = [unit.move(direction)]
             return False
+
+        if unit.state.role == UnitRole.RUBBLE_DIGGER:
+            # MOVE_TO_TARGET(rubble) -> PERFORM_ROLE -> MOVE_TO_TARGET (if power is sufficient)
+                                                     # -> MOVE_TO_FACTORY (if not sufficient)
+            # if unit.state.state == UnitStateEnum.INITIAL:
+            #     unit.state.state = UnitStateEnum.
+            pass
 
         for _ in range(len(UnitStateEnum)):
             if unit.state.state == UnitStateEnum.INITIAL:
@@ -442,7 +452,12 @@ class Agent:
                                 elif (
                                     unit.power >= unit.action_queue_cost(game_state) * 2
                                 ):
-                                    actions[unit_id] = [unit.pickup(resource_id, 2)]
+                                    main_factory = factory.state.main_factory
+                                    main_factory_water = game_state.factories[self.player][main_factory].cargo.water
+                                    if main_factory_water >= 50:
+                                        actions[unit_id] = [unit.pickup(resource_id, 5)]
+                                    else: # if main_factory lacks water, transfer minimum water
+                                        actions[unit_id] = [unit.pickup(resource_id, 2)]
                         else:
                             min_power = (
                                 unit.action_queue_cost(game_state) * 2
@@ -456,7 +471,7 @@ class Agent:
                                 actions[unit_id] = [
                                     unit.transfer(direction, 4, transfer_power)
                                 ]
-                    else:
+                    else: # EVEN CASE
                         resource_threshold = 6  # TODO calculate resource threshold
                         if unit.unit_type == "HEAVY":
                             resource_threshold *= 10
@@ -475,7 +490,11 @@ class Agent:
                         elif route_step == 0:
                             pickup_amount = 100 # TODO calculate pickup amount
                             if factory.state.role == FactoryRole.SUB and len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_FACTORY]) == len(route):
-                                pickup_amount = max(0, factory.power - unit.unit_cfg.INIT_POWER)
+                                # Has to build a digger robot, so transfer less power
+                                if len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) == 0 or game_state.factories[self.player][factory.state.main_factory].power > 300:
+                                    pickup_amount = max(0, factory.power - unit.unit_cfg.INIT_POWER) // 2
+                                else:
+                                    pickup_amount = max(0, factory.power - unit.unit_cfg.INIT_POWER)
                             elif all([
                                 factory.state.role == FactoryRole.MAIN,
                                 len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ICE]) == len(factory.state.plans["ice"].route),
@@ -920,11 +939,12 @@ class Agent:
                         game_state, factory, unit, actions, factory_pickup_robots
                     )
 
+            remaining_steps = (
+                    self.env_cfg.max_episode_length - game_state.real_env_steps
+            )
+
             # handle factory actions
             if factory.state.role == FactoryRole.MAIN:
-                remaining_steps = (
-                    self.env_cfg.max_episode_length - game_state.real_env_steps
-                )
                 water_cost = factory.water_cost(game_state)
                 spreads = remaining_steps / self.env_cfg.MIN_LICHEN_TO_SPREAD
                 multiple = (
@@ -978,6 +998,11 @@ class Agent:
                 if len(robot_ids) < required_transmitters:
                     if factory.can_build_light(game_state):
                         actions[factory_id] = factory.build_light()
+                elif len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) == 0 and factory.can_build_heavy(game_state):
+                    actions[factory_id] = factory.build_heavy()
+                elif factory.cargo.water - factory.water_cost(game_state) > 10 and remaining_steps < 250:
+                    actions[factory_id] = factory.water()
+                    
             else:
                 raise ValueError(f"Invalid factory role {factory.state.role}")
 

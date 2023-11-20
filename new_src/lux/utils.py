@@ -2,6 +2,8 @@ import numpy as np
 from itertools import product
 
 
+
+
 def my_turn_to_place_factory(place_first: bool, step: int):
     if place_first:
         if step % 2 == 1:
@@ -55,6 +57,25 @@ def distances(a: np.ndarray, b: np.ndarray, ord):
 
 factory_tile_deltas = (-1, 0, 1)
 factory_tile_deltas = np.array(list(product(factory_tile_deltas, factory_tile_deltas)))
+
+def flood_fill(factory_pos, rubble_map):
+    no_rubble = rubble_map == 0
+    queue = []
+    queue.append(factory_pos)
+    visited = np.zeros_like(rubble_map)
+    visited[factory_pos[0], factory_pos[1]] = 1
+    while len(queue) > 0:
+        pos = queue.pop(0)
+        for delta in factory_tile_deltas:
+            new_pos = pos + delta
+            if not no_rubble[new_pos[0], new_pos[1]]:
+                continue
+            if visited[new_pos[0], new_pos[1]]:
+                continue
+            visited[new_pos[0], new_pos[1]] = 1
+            queue.append(new_pos)
+
+    return visited
 
 
 def get_factory_tiles(factory_center):
