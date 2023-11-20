@@ -941,8 +941,9 @@ class Agent:
                         if factory.can_build_light(game_state):
                             actions[factory_id] = factory.build_light()
                     else:
-                        if factory.can_build_heavy(game_state):
-                            actions[factory_id] = factory.build_heavy()
+                        ...
+                        # if factory.can_build_heavy(game_state):
+                        #     actions[factory_id] = factory.build_heavy()
 
             elif factory.state.role == FactoryRole.SUB:
                 required_transmitters = factory.state.plans[
