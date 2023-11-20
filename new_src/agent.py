@@ -41,7 +41,7 @@ class Agent:
         self.unit_states: dict[UnitId, UnitState] = {}
         self.factory_states: dict[FactoryId, FactoryState] = {}
         self.move_cost_map = -1, None
-        self.MAX_DIGGER = 1
+        self.MAX_DIGGER = 2
 
     def _num_factories(self, game_state: GameState) -> int:
         factories = game_state.factories
@@ -434,7 +434,7 @@ class Agent:
                         continue
                 else:
                     unit.state.target_pos = None
-                    unite.state.state = UnitStateEnum.MOVING_TO_RUBBLE
+                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
                     continue
                 break
             if unit.state.state == UnitStateEnum.RUBBLE_MOVING_TO_FACTORY:
