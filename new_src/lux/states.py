@@ -91,6 +91,7 @@ class UnitState:
     owner: FactoryId | None = None
     role : UnitRole | None = None
     target_pos : Position | None = None
+    route_cache: Route | None = None
     # Invalid state when role or idle_pos changed
 
     def set_role(self, role: UnitRole):

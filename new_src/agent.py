@@ -357,14 +357,26 @@ class Agent:
             if np.all(target == unit.pos):
                 return True
             else:
-                route_to_target = get_shortest_loop(
-                    self.get_move_cost_map(game_state),
-                    unit.pos,
-                    target,
-                    ban_list=factory.state.ban_list if avoid else [],
-                )
-                if route_to_target is None:
-                    raise ValueError("No route found")
+                if unit.state.route_cache is not None and unit.state.route_cache.end == tuple(target):
+                    route_to_target = unit.state.route_cache
+                    if tuple(unit.pos) in route_to_target.path:
+                        route_step = route_to_target.path.index(tuple(unit.pos))
+                        unit.state.route_cache.path = route_to_target.path[route_step:]
+                        unit.state.route_cache.start = tuple(unit.pos)
+                    else:
+                        unit.state.route_cache = None
+                if unit.state.route_cache is None:
+                    route_to_target = get_shortest_loop(
+                        self.get_move_cost_map(game_state),
+                        unit.pos,
+                        target,
+                        ban_list=factory.state.ban_list if avoid else [],
+                    )
+                    if route_to_target is None:
+                        raise ValueError("No route found")
+                    unit.state.route_cache = route_to_target
+                else:
+                    route_to_target = unit.state.route_cache
                 direction = direction_to(unit.pos, route_to_target.path[1])
                 move_cost = unit.move_cost(game_state, direction)
                 if (
@@ -416,45 +428,6 @@ class Agent:
                     # if unit is not on route, state is already MOVING_TO_START
                     # unit is always on route
                     unit.state.state = UnitStateEnum.MOVING_TO_TARGET
-                    continue
-                break
-            if unit.state.state == UnitStateEnum.MOVING_TO_RUBBLE:
-                if unit.state.target_pos is None or game_state.board.rubble[unit.state.target_pos[0], unit.state.target_pos[1]] == 0:
-                    unit.state.target_pos = find_next_rubble_to_mine()
-                arrived = move_to(unit.state.target_pos)
-                if arrived:
-                    unit.state.state = UnitStateEnum.DIGGING_RUBBLE
-                    continue
-            if unit.state.state == UnitStateEnum.DIGGING_RUBBLE:
-                if game_state.board.rubble[unit.pos[0], unit.ops[1]] > 0:
-                    if unit.power >= unit.dig_cost(game_state) + unit.unit_cfg.INIT_POWER:
-                        actions[unit_id] = [unit.dig(repeat=0, n=1)]
-                    else:
-                        unit.state.state = UnitStateEnum.RUBBLE_MOVING_TO_FACTORY
-                        continue
-                else:
-                    unit.state.target_pos = None
-                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
-                    continue
-                break
-            if unit.state.state == UnitStateEnum.RUBBLE_MOVING_TO_FACTORY:
-                target = factory.pos
-                if factory.state.empty_factory_locs is not None:
-                    dists = taxi_dist(unit.pos, factory.state.empty_factory_locs)
-                    target = factory.state.empty_factory_locs[np.argmin(dists)]
-                arrived = move_to(target)
-                if arrived:
-                    unit.state.state = UnitStateEnum.RUBBLE_RECHARGING
-                    continue
-                break
-            if unit.state.state == UnitStateEnum.RUBBLE_RECHARGING:
-                target_power = unit.unit_cfg.INIT_POWER * 2
-                if unit.power < target_power:
-                    if target_power - unit.power <= factory.power:
-                        pickup_power = target_power - unit.power
-                        actions[unit_id] = [unit.pickup(4, pickup_power)]
-                else:
-                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
                     continue
                 break
             if unit.state.state == UnitStateEnum.MOVING_TO_START:
@@ -681,6 +654,46 @@ class Agent:
                     unit.state.state = UnitStateEnum.MOVING_TO_FACTORY
                     continue
                 break
+            if unit.state.state == UnitStateEnum.MOVING_TO_RUBBLE:
+                if unit.state.target_pos is None or game_state.board.rubble[unit.state.target_pos[0], unit.state.target_pos[1]] == 0:
+                    unit.state.target_pos = find_next_rubble_to_mine()
+                arrived = move_to(unit.state.target_pos)
+                if arrived:
+                    unit.state.state = UnitStateEnum.DIGGING_RUBBLE
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.DIGGING_RUBBLE:
+                if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:
+                    if unit.power >= unit.dig_cost(game_state) + unit.unit_cfg.INIT_POWER:
+                        actions[unit_id] = [unit.dig(repeat=0, n=1)]
+                    else:
+                        unit.state.state = UnitStateEnum.RUBBLE_MOVING_TO_FACTORY
+                        continue
+                else:
+                    unit.state.target_pos = None
+                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.RUBBLE_MOVING_TO_FACTORY:
+                target = factory.pos
+                if factory.state.empty_factory_locs is not None:
+                    dists = taxi_dist(unit.pos, factory.state.empty_factory_locs)
+                    target = factory.state.empty_factory_locs[np.argmin(dists)]
+                arrived = move_to(target)
+                if arrived:
+                    unit.state.state = UnitStateEnum.RUBBLE_RECHARGING
+                    continue
+                break
+            if unit.state.state == UnitStateEnum.RUBBLE_RECHARGING:
+                target_power = unit.unit_cfg.INIT_POWER * 2
+                if unit.power < target_power:
+                    if target_power - unit.power <= factory.power:
+                        pickup_power = target_power - unit.power
+                        actions[unit_id] = [unit.pickup(4, pickup_power)]
+                else:
+                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
+                    continue
+                break
         else:
             raise ValueError("Unit State Machine failed to break")
         return actions
@@ -804,16 +817,10 @@ class Agent:
                 * self.env_cfg.ROBOTS["LIGHT"].RUBBLE_MOVEMENT_COST
                 + self.env_cfg.ROBOTS["LIGHT"].MOVE_COST
             )
-            unit_poses = [unit.pos for unit in game_state.units[self.opp_player].values()]
-            factory_poses = sum([list(get_factory_tiles(factory.pos)) for factory in game_state.factories[self.opp_player].values()], start=[])
-            for x, y in unit_poses + factory_poses:
-                cost_map[x][y] = -1
-
-            unit_poses = []
-            for unit_id, unit in game_state.units[self.player].items():
-                
-                if unit_id in self.unit_states:
-                    cost_map[unit.pos[0], unit.pos[1]] = 1e9
+            # unit_poses = [unit.pos for unit in game_state.units[self.opp_player].values()]
+            # factory_poses = sum([list(get_factory_tiles(factory.pos)) for factory in game_state.factories[self.opp_player].values()], start=[])
+            # for x, y in unit_poses + factory_poses:
+            #     cost_map[x][y] = -1
 
             self.move_cost_map = game_state.env_steps, cost_map
         return cost_map
@@ -1037,21 +1044,6 @@ class Agent:
         for factory_id, factory in factories.items():
             # handle action of robots bound to factories
             factory_pickup_robots = 0
-
-            for mission, mission_robot_ids in factory.state.robot_missions.items():
-                for unit_id in mission_robot_ids:
-                    unit = units[unit_id]
-                    factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
-                    can_pickup_from_factory = factory_inf_distance <= 1
-                    if (
-                        can_pickup_from_factory
-                        and self.unit_states[unit_id].state
-                        > UnitStateEnum.MOVING_TO_START
-                    ):
-                        if unit.unit_type == "LIGHT":
-                            factory_pickup_robots += 1
-                        else:
-                            factory_pickup_robots += 10
             for mission, mission_robot_ids in factory.state.robot_missions.items():
                 for unit_id in mission_robot_ids:
                     unit = units[unit_id]
@@ -1177,4 +1169,4 @@ if __name__ == "__main__":
     agents = {
         player: Agent(player, env.state.env_cfg) for player in ["player_0", "player_1"]
     }
-    main(env, agents, 100, 832321049)
+    main(env, agents, 1000, 832321049)#167985129)

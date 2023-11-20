@@ -25,26 +25,29 @@ def agent_fn(observation, configurations):
     """
     agent definition for kaggle submission.
     """
-    global agent_dict
-    step = observation.step
+    try:
+        global agent_dict
+        step = observation.step
 
-    player = observation.player
-    remainingOverageTime = observation.remainingOverageTime
-    if step == 0:
-        env_cfg = EnvConfig.from_dict(configurations["env_cfg"])
-        agent_dict[player] = Agent(player, env_cfg)
-        agent_prev_obs[player] = dict()
+        player = observation.player
+        remainingOverageTime = observation.remainingOverageTime
+        if step == 0:
+            env_cfg = EnvConfig.from_dict(configurations["env_cfg"])
+            agent_dict[player] = Agent(player, env_cfg)
+            agent_prev_obs[player] = dict()
+            agent = agent_dict[player]
         agent = agent_dict[player]
-    agent = agent_dict[player]
-    obs = process_obs(player, agent_prev_obs[player], step, json.loads(observation.obs))
-    agent_prev_obs[player] = obs
-    agent.step = step
-    if obs["real_env_steps"] < 0:
-        actions = agent.early_setup(step, obs, remainingOverageTime)
-    else:
-        actions = agent.act(step, obs, remainingOverageTime)
+        obs = process_obs(player, agent_prev_obs[player], step, json.loads(observation.obs))
+        agent_prev_obs[player] = obs
+        agent.step = step
+        if obs["real_env_steps"] < 0:
+            actions = agent.early_setup(step, obs, remainingOverageTime)
+        else:
+            actions = agent.act(step, obs, remainingOverageTime)
 
-    return process_action(actions)
+        return process_action(actions)
+    except:
+        return process_action({})
 
 
 if __name__ == "__main__":
