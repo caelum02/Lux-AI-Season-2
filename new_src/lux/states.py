@@ -31,6 +31,10 @@ class UnitStateEnum(IntEnum):
     MOVING_TO_FACTORY = 5
     DROPPING_RESOURCE = 6
     PICKING_RESOURCE = 7
+    MOVING_TO_RUBBLE = 8
+    DIGGING_RUBBLE = 9
+    RUBBLE_MOVING_TO_FACTORY = 10
+    RUBBLE_RECHARGING = 11
     
 
 
@@ -138,6 +142,7 @@ class FactoryState:
     main_factory: FactoryId | None = None
     sub_factory: FactoryId | None = None
     ban_list : list[Position] | None = None
+    empty_factory_locs: list[Position] | None = None
 
     def __post_init__(self):
         if self.robot_missions is None:

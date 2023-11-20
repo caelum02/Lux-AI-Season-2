@@ -151,6 +151,10 @@ class GameState:
             return self.env_steps - (self.board.factories_per_team * 2 + 1)
         else:
             return self.env_steps
+    
+    @property
+    def remaining_steps(self):
+        return self.env_cfg.max_episode_length - self.real_env_steps
 
     # various utility functions
     def is_day(self):
