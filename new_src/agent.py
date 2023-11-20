@@ -473,7 +473,15 @@ class Agent:
                             ):
                                 actions[unit_id] = [unit.dig(repeat=0, n=1)]
                         elif route_step == 0:
-                            pickup_amount = 50  # TODO calculate pickup amount
+                            pickup_amount = 100 # TODO calculate pickup amount
+                            if factory.state.role == FactoryRole.SUB and len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_FACTORY]) == len(route):
+                                pickup_amount = max(0, factory.power - unit.unit_cfg.INIT_POWER)
+                            elif all([
+                                factory.state.role == FactoryRole.MAIN,
+                                len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ICE]) == len(factory.state.plans["ice"].route),
+                                len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]) == len(factory.state.plans["ore"].route),
+                            ]):
+                                pickup_amount = max(0, (factory.power - unit.unit_cfg.INIT_POWER) // 2)
                             if unit.power >= unit.action_queue_cost(game_state) * 2:
                                 actions[unit_id] = [unit.pickup(4, pickup_amount)]
                         else:
