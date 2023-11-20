@@ -90,8 +90,8 @@ class Agent:
                 game_state.teams[self.player].place_first, step
             )
             # Debugging : Only place two factories
-            if len(game_state.factories[self.player]) >= 2:
-                return {}
+            # if len(game_state.factories[self.player]) >= 2:
+            #     return {}
 
             new_factory_id = f"factory_{self._num_factories(game_state)}"
             spawn_action = {}
@@ -111,15 +111,15 @@ class Agent:
                     )
 
                     # Debug message
-                    factory_score_spawn = factory_score[spawn_loc[0], spawn_loc[1]]
-                    rubble_score_spawn = es_state.rubble_score[
-                        spawn_loc[0], spawn_loc[1]
-                    ]
+                    # factory_score_spawn = factory_score[spawn_loc[0], spawn_loc[1]]
+                    # rubble_score_spawn = es_state.rubble_score[
+                    #     spawn_loc[0], spawn_loc[1]
+                    # ]
 
-                    print(
-                        f"{self.player} placed {new_factory_id} at {spawn_loc}, factory score: {factory_score_spawn}, rubble score: {rubble_score_spawn}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"{self.player} placed {new_factory_id} at {spawn_loc}, factory score: {factory_score_spawn}, rubble score: {rubble_score_spawn}",
+                    #     file=sys.stderr,
+                    # )
 
                     plans = dict(water=150, metal=240)
                     if factories_to_place == 1:
@@ -273,18 +273,18 @@ class Agent:
                     spawn_action = {"spawn": spawn_loc, "water": 150, "metal": 60}
 
                     # Debug message
-                    print(
-                        f"{self.player} placed {new_factory_id} at {spawn_loc}, main: {main_factory_id}",
-                        file=sys.stderr,
-                    )
-                    print(
-                        f"f2f: {sub_factory_plans['factory_to_factory'].route.path}",
-                        file=sys.stderr,
-                    )
-                    print(
-                        f"ice: {main_factory_plans['ice'].route.path}, ore: {main_factory_plans['ore'].route.path}",
-                        file=sys.stderr,
-                    )
+                    # print(
+                    #     f"{self.player} placed {new_factory_id} at {spawn_loc}, main: {main_factory_id}",
+                    #     file=sys.stderr,
+                    # )
+                    # print(
+                    #     f"f2f: {sub_factory_plans['factory_to_factory'].route.path}",
+                    #     file=sys.stderr,
+                    # )
+                    # print(
+                    #     f"ice: {main_factory_plans['ice'].route.path}, ore: {main_factory_plans['ore'].route.path}",
+                    #     file=sys.stderr,
+                    # )
 
             return spawn_action
 
@@ -538,8 +538,7 @@ class Agent:
                     continue
                 break
         else:
-            print("Unit state machine failed to break", file=sys.stderr)
-            raise ValueError()
+            raise ValueError("Unit State Machine failed to break")
         return actions
 
     def _assign_role_to_unit(self, unit, factory):
@@ -775,10 +774,11 @@ class Agent:
                 ),
             )
             factory_state.ban_list = [*ice_route.path, *ore_route.path]
-            print(
-                f"{factory_id}: ice: {ice_route.path}, ore: {ore_route.path}",
-                file=sys.stderr,
-            )
+            # Debug
+            # print(
+            #     f"{factory_id}: ice: {ice_route.path}, ore: {ore_route.path}",
+            #     file=sys.stderr,
+            # )
 
             factory.state = self.factory_states[factory_id]
 
