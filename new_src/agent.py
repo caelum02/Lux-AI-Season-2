@@ -356,20 +356,11 @@ class Agent:
                 unit.state.state = UnitStateEnum.MOVING_TO_START
             else:
                 route_step = route.path.index(tuple(unit.pos))
-
         def move_to(target, avoid=True) -> bool:
             if np.all(target == unit.pos):
                 unit.state.route_cache = None
                 return True
             else:
-                ban_list = []
-            if factory.state.ban_list is not None:
-                ban_list = factory.state.ban_list
-                if unit.state.mission == UnitMission.DIG_RUBBLE:
-                    if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
-                        ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
-                    if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
-                        ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
                 if unit.state.route_cache is not None and unit.state.route_cache.end == tuple(target):
                     route_to_target = unit.state.route_cache
                     if tuple(unit.pos) in route_to_target.path:
@@ -379,6 +370,17 @@ class Agent:
                     else:
                         unit.state.route_cache = None
                 if unit.state.route_cache is None:
+                    ban_list = []
+                    if factory.state.ban_list is not None:
+                        ban_list = factory.state.ban_list
+                    if unit.state.mission == UnitMission.DIG_RUBBLE:
+                        if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
+                            ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+                        if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
+                            ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
+                        #for unit_id_ in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:
+                        #    if unit_id_ != unit_id:
+                        #        ban_list += [game_state.units[self.player][unit_id_].pos]
                     route_to_target = get_shortest_loop(
                         self.get_move_cost_map(game_state),
                         unit.pos,
@@ -416,14 +418,18 @@ class Agent:
             return False
 
         def find_next_rubble_to_mine():
-            rubble_map = game_state.board.rubble.copy()
             ban_list = []
             if factory.state.ban_list is not None:
                 ban_list = factory.state.ban_list
-            if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
-                ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
-            if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
-                ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
+            if unit.state.mission == UnitMission.DIG_RUBBLE:
+                if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
+                    ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+                if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
+                    ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
+                #for unit_id in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:
+                #    if unit_id != unit.unit_id:
+                #        ban_list += [game_state.units[self.player][unit_id].pos]
+            rubble_map = game_state.board.rubble.copy()
             for ban_loc in ban_list:
                 rubble_map[ban_loc[0], ban_loc[1]] = 0
             for robot_id in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:

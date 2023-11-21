@@ -147,7 +147,7 @@ class FactoryState:
     ban_list : list[Position] | None = None
     empty_factory_locs: list[Position] | None = None
     ore_disabled: bool = False
-    MAX_DIGGER: int = 3
+    MAX_DIGGER: int = 2
 
     def __post_init__(self):
         if self.robot_missions is None:
