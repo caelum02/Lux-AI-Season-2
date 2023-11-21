@@ -277,7 +277,7 @@ class Agent:
                         role=FactoryRole.SUB,
                         main_factory=main_factory_id,
                         plans=sub_factory_plans,
-                        ban_list=f2f_plan.route.path,
+                        ban_list=f2f_plan.route.path.copy(),
                         empty_factory_locs = remove_loc(get_factory_tiles(spawn_loc), sub_factory_plans['factory_to_factory'].route.start)
                     )
                     self.factory_states[main_factory_id].plans = main_factory_plans
@@ -370,17 +370,9 @@ class Agent:
                     else:
                         unit.state.route_cache = None
                 if unit.state.route_cache is None:
-                    ban_list = []
-                    if factory.state.ban_list is not None:
-                        ban_list = factory.state.ban_list
-                    if unit.state.mission == UnitMission.DIG_RUBBLE:
-                        if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
-                            ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
-                        if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
-                            ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
-                        #for unit_id_ in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:
-                        #    if unit_id_ != unit_id:
-                        #        ban_list += [game_state.units[self.player][unit_id_].pos]
+                    ban_list = factory.state.ban_list.copy()
+                    if factory.state.main_factory is not None:
+                        ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
                     route_to_target = get_shortest_loop(
                         self.get_move_cost_map(game_state),
                         unit.pos,
@@ -418,17 +410,9 @@ class Agent:
             return False
 
         def find_next_rubble_to_mine():
-            ban_list = []
-            if factory.state.ban_list is not None:
-                ban_list = factory.state.ban_list
-            if unit.state.mission == UnitMission.DIG_RUBBLE:
-                if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
-                    ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
-                if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
-                    ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
-                #for unit_id in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:
-                #    if unit_id != unit.unit_id:
-                #        ban_list += [game_state.units[self.player][unit_id].pos]
+            ban_list = factory.state.ban_list.copy()
+            if factory.state.main_factory is not None:
+                ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
             rubble_map = game_state.board.rubble.copy()
             for ban_loc in ban_list:
                 rubble_map[ban_loc[0], ban_loc[1]] = 0
@@ -832,8 +816,8 @@ class Agent:
             unit.state.following_route = factory.state.plans[
                 mission.resource_type
             ].route
-        if mission == UnitMission.PIPE_FACTORY_TO_FACTORY:
-            unit.state.following_route = factory.state.plans["factory_to_factory"].route
+        
+
 
         self._assign_role_to_unit(unit, factory)
 
@@ -1091,8 +1075,8 @@ class Agent:
                     factory.state.robot_missions[unit.state.mission].remove(unit.unit_id)
                     unit.state.mission = UnitMission.NONE
                     factory.state.robot_missions[unit.state.mission].append(unit.unit_id)
-            if factory.state.main_factory is not None and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) > 0:
-                if remaining_steps < 100:
+            if factory.state.main_factory is not None and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) < factory.state.MAX_DIGGER:
+                if remaining_steps < 100 and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) > 0:
                     factory.state.MAX_DIGGER = len(factory.state.robot_missions[UnitMission.DIG_RUBBLE])
             factory_pickup_robots = 0
             for mission, mission_robot_ids in factory.state.robot_missions.items():
@@ -1107,15 +1091,9 @@ class Agent:
             # handle factory actions
             if factory.state.role == FactoryRole.MAIN:
                 water_cost = factory.water_cost(game_state)
-                spreads = remaining_steps / self.env_cfg.MIN_LICHEN_TO_SPREAD
-                multiple = (
-                    spreads * (spreads + 1) * (2 * spreads + 1) / 6
-                ) * self.env_cfg.MIN_LICHEN_TO_SPREAD
-                estimated_water_cost = water_cost * multiple
-                if remaining_steps > 30:
-                    estimated_water_cost = 1e9
-                if (estimated_water_cost + remaining_steps) <= factory.cargo.water:
-                    actions[factory_id] = factory.water()
+                if remaining_steps < self.env_cfg.MIN_LICHEN_TO_SPREAD:
+                    if (water_cost + 1) * remaining_steps < factory.cargo.water:
+                        actions[factory_id] = factory.water()
                 elif remaining_steps == 1 and water_cost + 1 < factory.cargo.water:
                     actions[factory_id] = factory.water()
                 else:  # or build robots
