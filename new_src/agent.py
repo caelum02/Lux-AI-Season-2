@@ -430,8 +430,6 @@ class Agent:
             distances = taxi_dist(factory.pos, rubble_locs)
             return rubble_locs[np.argmin(distances)]
 
-        if unit.unit_id == "unit_108" and game_state.real_env_steps == 388:
-            breakpoint()
         for _ in range(len(UnitStateEnum)):
             if unit.state.state == UnitStateEnum.INITIAL:
                 if unit.state.role == UnitRole.RUBBLE_DIGGER:
