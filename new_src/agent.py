@@ -989,8 +989,8 @@ class Agent:
 
             factory.state = self.factory_states[factory_id]
         
-        for factory_id, factory in game_state.factories[self.opp_player]:
-            self.enemy_factory_tiles[factory_id] = get_factory_tiles(factory.pos)
+        for factory_id, factory in game_state.factories[self.opp_player].items():
+            self.enemy_factory_tiles[factory_id] = list(map(tuple, get_factory_tiles(factory.pos)))
             self.enemy_factory_tile_ban_list += self.enemy_factory_tiles[factory_id]
 
     def _unregister_factories(self, game_state):
