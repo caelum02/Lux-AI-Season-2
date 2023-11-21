@@ -369,6 +369,8 @@ class Agent:
                         unit.state.route_cache.start = tuple(unit.pos)
                     else:
                         unit.state.route_cache = None
+                else:
+                    unit.state.route_cache = None
                 if unit.state.route_cache is None:
                     ban_list = factory.state.ban_list.copy()
                     if factory.state.main_factory is not None:
@@ -428,6 +430,8 @@ class Agent:
             distances = taxi_dist(factory.pos, rubble_locs)
             return rubble_locs[np.argmin(distances)]
 
+        if unit.unit_id == "unit_108" and game_state.real_env_steps == 388:
+            breakpoint()
         for _ in range(len(UnitStateEnum)):
             if unit.state.state == UnitStateEnum.INITIAL:
                 if unit.state.role == UnitRole.RUBBLE_DIGGER:
