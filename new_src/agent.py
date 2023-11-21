@@ -41,7 +41,7 @@ class Agent:
         self.unit_states: dict[UnitId, UnitState] = {}
         self.factory_states: dict[FactoryId, FactoryState] = {}
         self.move_cost_map = -1, None
-        self.MAX_DIGGER = 2
+        self.MAX_DIGGER = 1
 
     def _num_factories(self, game_state: GameState) -> int:
         factories = game_state.factories
@@ -403,10 +403,10 @@ class Agent:
             return False
 
         def find_next_rubble_to_mine():
-            rubble_map = game_state.board.rubble
+            rubble_map = game_state.board.rubble.copy()
             if factory.state.ban_list is not None:
                 for ban_loc in factory.state.ban_list:
-                    rubble_map[ban_loc] = 0
+                    rubble_map[ban_loc[0], ban_loc[1]] = 0
             for robot_id in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:
                 unit_state = self.unit_states[robot_id]
                 if unit_state.state in [
@@ -422,7 +422,7 @@ class Agent:
         for _ in range(len(UnitStateEnum)):
             if unit.state.state == UnitStateEnum.INITIAL:
                 if unit.state.role == UnitRole.RUBBLE_DIGGER:
-                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
+                    unit.state.state = UnitStateEnum.RUBBLE_RECHARGING
                     continue
                 if route is not None:
                     # if unit is not on route, state is already MOVING_TO_START
@@ -480,7 +480,7 @@ class Agent:
                                 )
                                 charge_to = int(unit.unit_cfg.INIT_POWER * 1.5)
                                 if unit.power < charge_threshold:
-                                    transfer_power = charge_to - unit.power
+                                    transfer_power = charge_to - unit.power + unit.action_queue_cost(game_state)
                                     if factory.power >= transfer_power:
                                         if unit.power >= unit.action_queue_cost(
                                             game_state
@@ -546,19 +546,16 @@ class Agent:
                                             UnitMission.DIG_RUBBLE
                                         ]
                                     )
-                                    == 0
+                                    < self.MAX_DIGGER
                                     or game_state.factories[self.player][
                                         factory.state.main_factory
                                     ].power
                                     > 300
                                 ):
-                                    pickup_amount = (
-                                        max(0, factory.power - unit.unit_cfg.INIT_POWER)
-                                        // 2
-                                    )
+                                    pickup_amount = 0
                                 else:
                                     pickup_amount = max(
-                                        0, factory.power - unit.unit_cfg.INIT_POWER
+                                        0, factory.power - 300
                                     )
                             elif (
                                 factory.state.role == FactoryRole.MAIN
@@ -576,10 +573,12 @@ class Agent:
                                 == len(factory.state.plans["ore"].route)
                             ):
                                 pickup_amount = max(
-                                    0, (factory.power - unit.unit_cfg.INIT_POWER) // 2
+                                    0, (factory.power - 300) // 2
                                 )
-                            if unit.power >= unit.action_queue_cost(game_state) * 2:
-                                actions[unit_id] = [unit.pickup(4, pickup_amount)]
+                            pickup_amount = min(pickup_amount, unit.unit_cfg.BATTERY_CAPACITY - unit.power)
+                            if pickup_amount > 0:
+                                if unit.power >= unit.action_queue_cost(game_state) * 2:
+                                    actions[unit_id] = [unit.pickup(4, pickup_amount)]
                         else:
                             direction = direction_to(
                                 unit.pos, route.path[route_step - 1]
@@ -685,15 +684,19 @@ class Agent:
                     continue
                 break
             if unit.state.state == UnitStateEnum.RUBBLE_RECHARGING:
-                target_power = unit.unit_cfg.INIT_POWER * 2
-                if unit.power < target_power:
-                    if target_power - unit.power <= factory.power:
-                        pickup_power = target_power - unit.power
-                        actions[unit_id] = [unit.pickup(4, pickup_power)]
+                if can_pickup_from_factory:
+                    target_power = unit.unit_cfg.BATTERY_CAPACITY
+                    if unit.power < target_power:
+                        if target_power - unit.power <= factory.power:
+                            pickup_power = target_power - unit.power + unit.action_queue_cost(game_state)
+                            actions[unit_id] = [unit.pickup(4, pickup_power)]
+                    else:
+                        unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
+                        continue
+                    break
                 else:
-                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
+                    unit.state.state = UnitStateEnum.RUBBLE_MOVING_TO_FACTORY
                     continue
-                break
         else:
             raise ValueError("Unit State Machine failed to break")
         return actions

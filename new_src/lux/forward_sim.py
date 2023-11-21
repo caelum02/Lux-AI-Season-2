@@ -140,7 +140,10 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
             for u in units:
                 if unit_states[u.unit_id].state == UnitStateEnum.MOVING_TO_START:
                     direction = get_avoiding_direction(surviving_route, u.pos)
-                    stopped_units[u] = u.move(direction)
+                    if u.power >= u.move_cost(game_state, direction) + u.action_queue_cost(game_state):
+                        stopped_units[u] = u.move(direction)
+                    else:
+                        stopped_units[u] = u.move(0)
                 else:
                     stopped_units[u] = u.move(0)
         elif len(heavy_entered_pos[pos_hash]) > 0:
