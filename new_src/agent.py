@@ -25,6 +25,7 @@ from lux.states import (
 
 from lux.factory import Factory
 from lux.unit import Unit
+from lux.water_costs import water_costs
 
 
 class Agent:
@@ -41,6 +42,8 @@ class Agent:
         self.unit_states: dict[UnitId, UnitState] = {}
         self.factory_states: dict[FactoryId, FactoryState] = {}
         self.move_cost_map = -1, None
+        self.enemy_factory_tiles = {}
+        self.enemy_factory_tile_ban_list = []
 
     def _num_factories(self, game_state: GameState) -> int:
         factories = game_state.factories
@@ -375,6 +378,7 @@ class Agent:
                     ban_list = factory.state.ban_list.copy()
                     if factory.state.main_factory is not None:
                         ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+                    ban_list += self.enemy_factory_tile_ban_list
                     route_to_target = get_shortest_loop(
                         self.get_move_cost_map(game_state),
                         unit.pos,
@@ -527,6 +531,8 @@ class Agent:
                         else:
                             if resource_id != resource_ids["power"]:    
                                 min_power = unit.action_queue_cost(game_state) * 3
+                                # if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:  # TODO Rubble mining!
+                                #     min_power += unit.unit_cfg.DIG_COST
                                 if unit.power > min_power:
                                     transfer_power = unit.power - min_power
                                     direction = direction_to(
@@ -597,6 +603,7 @@ class Agent:
                             direction = direction_to(
                                 unit.pos, route.path[route_step - 1]
                             )
+
                             if unit.cargo.from_id(resource_id) > 0:
                                 if unit.power >= unit.action_queue_cost(game_state):
                                     actions[unit_id] = [
@@ -606,6 +613,12 @@ class Agent:
                                             unit.cargo.from_id(resource_id),
                                         )
                                     ]
+                            if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:  # TODO Rubble Mining!!
+                                ...
+                                # if factory.cargo.from_id(resource_id) > 50:
+                                #     if unit.power >= unit.unit_cfg.DIG_COST + unit.action_queue_cost(game_state):
+                                #         actions[unit_id] = [unit.dig(direction, repeat=0, n=1)]  # rubble mining
+
                 else:
                     if resource_type in ["ice", "ore"]:
                         resource_threshold = 6  # TODO calculate resource threshold
@@ -975,6 +988,10 @@ class Agent:
             # )
 
             factory.state = self.factory_states[factory_id]
+        
+        for factory_id, factory in game_state.factories[self.opp_player]:
+            self.enemy_factory_tiles[factory_id] = get_factory_tiles(factory.pos)
+            self.enemy_factory_tile_ban_list += self.enemy_factory_tiles[factory_id]
 
     def _unregister_factories(self, game_state):
         # Remove robots from factories if factory is destroyed
@@ -998,6 +1015,14 @@ class Agent:
                 if main_factory_id in factory_ids:
                     self.factory_states[main_factory_id].sub_factory = None
             del self.factory_states[factory_id]
+        enemy_factory_ids_to_destroy = []
+        for factory_id in self.enemy_factory_tiles:
+            if factory_id not in game_state.factories[self.opp_player]:
+                enemy_factory_ids_to_destroy.append(factory_id)
+                for tile in self.enemy_factory_tiles[factory_id]:
+                    self.enemy_factory_tile_ban_list.remove(tile)
+        for factory_id in enemy_factory_ids_to_destroy:
+            del self.enemy_factory_tiles[factory_id]
         return game_state
 
     def _register_units(self, units, factories, factory_centers, factory_ids):
@@ -1136,6 +1161,17 @@ class Agent:
                     #     actions[factory_id] = factory.build_heavy()
 
             elif factory.state.role == FactoryRole.SUB:
+                water_income = 0
+                unit_waters = 0
+                unit_count = 0
+                for unit_id in factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_FACTORY]:
+                    unit = units[unit_id]
+                    unit_waters += unit.cargo.water
+                    unit_count += 1
+                if unit_count > 0:
+                    water_income = unit_waters / unit_count
+                factory.state.update_average_water_income(water_income)
+            
                 required_transmitters = factory.state.plans[
                     "factory_to_factory"
                 ].max_route_robots
@@ -1147,11 +1183,15 @@ class Agent:
                     factory.state.robot_missions[UnitMission.DIG_RUBBLE]
                 ) < factory.state.MAX_DIGGER and factory.can_build_heavy(game_state):  # TODO build more heavy units
                     actions[factory_id] = factory.build_heavy()
-                elif (
-                    factory.cargo.water - (factory.water_cost(game_state) + 1) * remaining_steps > 0
-                    and remaining_steps < 250
-                ):
-                    actions[factory_id] = factory.water()
+                elif factory.water_cost(game_state) > 0:
+                    if factory.water_cost(game_state) + 1 <= factory.cargo.water:
+                        actions[factory_id] = factory.water()
+                    else:
+                        print(f"Factory {factory_id} does not have enough water", file=sys.stderr)
+                elif remaining_steps <= len(water_costs):
+                    water_loss = 1  # default
+                    if water_costs[remaining_steps - 1] + (water_loss - factory.state.average_water_income) * remaining_steps <= factory.cargo.water:
+                        actions[factory_id] = factory.water()
             else:
                 raise ValueError(f"Invalid factory role {factory.state.role}")
 

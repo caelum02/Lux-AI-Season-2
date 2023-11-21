@@ -148,10 +148,14 @@ class FactoryState:
     empty_factory_locs: list[Position] | None = None
     ore_disabled: bool = False
     MAX_DIGGER: int = 1
+    average_water_income = 0
 
     def __post_init__(self):
         if self.robot_missions is None:
             self.robot_missions = {mission: [] for mission in UnitMission}
+    
+    def update_average_water_income(self, water_income, r = 1 / 10):
+        self.average_water_income = self.average_water_income * r + water_income * (1-r)
 
 
 @dataclass
