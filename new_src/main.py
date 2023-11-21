@@ -47,6 +47,7 @@ def agent_fn(observation, configurations):
 
         return process_action(actions)
     except:
+        raise
         return process_action({})
 
 

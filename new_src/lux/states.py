@@ -45,6 +45,7 @@ class UnitMission(IntEnum):
     PIPE_FACTORY_TO_ORE = 3
     PIPE_MINE_ORE = 4
     DIG_RUBBLE = 5
+    NONE = 6
 
     @property
     def resource_type(self):
@@ -64,6 +65,7 @@ class UnitRole(IntEnum):
     STATIONARY_TRANSPORTER = 2
     TRANSPORTER = 3
     RUBBLE_DIGGER = 4
+    NONE = 5
 
     @property
     def is_stationary(self):
@@ -144,6 +146,8 @@ class FactoryState:
     sub_factory: FactoryId | None = None
     ban_list : list[Position] | None = None
     empty_factory_locs: list[Position] | None = None
+    ore_disabled: bool = False
+    MAX_DIGGER: int = 3
 
     def __post_init__(self):
         if self.robot_missions is None:

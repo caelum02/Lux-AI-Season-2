@@ -41,7 +41,6 @@ class Agent:
         self.unit_states: dict[UnitId, UnitState] = {}
         self.factory_states: dict[FactoryId, FactoryState] = {}
         self.move_cost_map = -1, None
-        self.MAX_DIGGER = 1
 
     def _num_factories(self, game_state: GameState) -> int:
         factories = game_state.factories
@@ -322,6 +321,8 @@ class Agent:
     def handle_robot_actions(
         self, game_state, factory: Factory, unit: Unit, actions, factory_pickup_robots
     ):
+        if unit.state.mission == UnitMission.NONE:
+            return actions
         unit_id = unit.unit_id
         factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
         can_pickup_from_factory = factory_inf_distance <= 1
@@ -338,9 +339,12 @@ class Agent:
                         len(main_factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ICE]) + 1 == len(main_factory.state.plans["ice"].route),
                         len(main_factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]) + 1 == len(main_factory.state.plans["ore"].route),
                         factory.cargo.water > 50,
-                        len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) < self.MAX_DIGGER,
                     ]):
-                        resource_id = resource_ids["metal"]
+                        if len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) < factory.state.MAX_DIGGER:
+                            resource_id = resource_ids["metal"]
+                        elif main_factory.power > 500:
+                            resource_id = resource_ids["power"]
+                    
             else:
                 resource_id = resource_ids[resource_type]
 
@@ -355,8 +359,17 @@ class Agent:
 
         def move_to(target, avoid=True) -> bool:
             if np.all(target == unit.pos):
+                unit.state.route_cache = None
                 return True
             else:
+                ban_list = []
+            if factory.state.ban_list is not None:
+                ban_list = factory.state.ban_list
+                if unit.state.mission == UnitMission.DIG_RUBBLE:
+                    if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
+                        ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+                    if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
+                        ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
                 if unit.state.route_cache is not None and unit.state.route_cache.end == tuple(target):
                     route_to_target = unit.state.route_cache
                     if tuple(unit.pos) in route_to_target.path:
@@ -370,7 +383,7 @@ class Agent:
                         self.get_move_cost_map(game_state),
                         unit.pos,
                         target,
-                        ban_list=factory.state.ban_list if avoid else [],
+                        ban_list=ban_list if avoid else [],
                     )
                     if route_to_target is None:
                         raise ValueError("No route found")
@@ -404,9 +417,15 @@ class Agent:
 
         def find_next_rubble_to_mine():
             rubble_map = game_state.board.rubble.copy()
+            ban_list = []
             if factory.state.ban_list is not None:
-                for ban_loc in factory.state.ban_list:
-                    rubble_map[ban_loc[0], ban_loc[1]] = 0
+                ban_list = factory.state.ban_list
+            if factory.state.main_factory is not None and game_state.factories[self.player][factory.state.main_factory].state.ban_list is not None:
+                ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+            if factory.state.sub_factory is not None and game_state.factories[self.player][factory.state.sub_factory].state.ban_list is not None:
+                ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
+            for ban_loc in ban_list:
+                rubble_map[ban_loc[0], ban_loc[1]] = 0
             for robot_id in factory.state.robot_missions[UnitMission.DIG_RUBBLE]:
                 unit_state = self.unit_states[robot_id]
                 if unit_state.state in [
@@ -422,7 +441,7 @@ class Agent:
         for _ in range(len(UnitStateEnum)):
             if unit.state.state == UnitStateEnum.INITIAL:
                 if unit.state.role == UnitRole.RUBBLE_DIGGER:
-                    unit.state.state = UnitStateEnum.RUBBLE_RECHARGING
+                    unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
                     continue
                 if route is not None:
                     # if unit is not on route, state is already MOVING_TO_START
@@ -438,13 +457,23 @@ class Agent:
                 break
             if unit.state.state == UnitStateEnum.PICKING_RESOURCE:
                 if can_pickup_from_factory:
-                    target_power = (
-                        unit.unit_cfg.INIT_POWER
-                    )  # TODO calculate target power
+                    target_power = 150
+                    if factory.state.main_factory is not None and len(
+                        factory.state.robot_missions[
+                            UnitMission.PIPE_FACTORY_TO_FACTORY
+                        ]
+                    ) == len(route):
+                        # Has to build a digger robot, so transfer less power
+                        main_factory = game_state.factories[self.player][
+                                factory.state.main_factory
+                            ]
+                        if main_factory.state.ore_disabled and main_factory.power > 500:
+                            target_power = 0
+                    
                     if unit.power < target_power:
-                        if target_power - unit.power <= factory.power:
-                            pickup_power = target_power - unit.power
-                            actions[unit_id] = [unit.pickup(4, pickup_power)]
+                        if target_power - unit.power + unit.action_queue_cost(game_state)<= factory.power:
+                            pickup_power = target_power - unit.power + unit.action_queue_cost(game_state)
+                            actions[unit_id] = [unit.pickup(4, min(unit.unit_cfg.BATTERY_CAPACITY, pickup_power))]
                     else:
                         unit.state.state = UnitStateEnum.MOVING_TO_TARGET
                         continue
@@ -474,10 +503,7 @@ class Agent:
                             and route_step == len(route) - 1
                         ):
                             if factory.state.main_factory is not None:
-                                charge_threshold = (
-                                    unit.action_queue_cost(game_state) * 2
-                                    + unit.unit_cfg.INIT_POWER
-                                )
+                                charge_threshold = unit.action_queue_cost(game_state) * 5
                                 charge_to = int(unit.unit_cfg.INIT_POWER * 1.5)
                                 if unit.power < charge_threshold:
                                     transfer_power = charge_to - unit.power + unit.action_queue_cost(game_state)
@@ -486,7 +512,7 @@ class Agent:
                                             game_state
                                         ):
                                             actions[unit_id] = [
-                                                unit.pickup(4, transfer_power)
+                                                unit.pickup(4, min(unit.unit_cfg.BATTERY_CAPACITY, transfer_power))
                                             ]
                                 elif (
                                     unit.power >= unit.action_queue_cost(game_state) * 2
@@ -503,19 +529,20 @@ class Agent:
                                     elif resource_id == resource_ids["metal"]:
                                         if main_factory_cargo.metal > 0:
                                             actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.metal, self.env_cfg.ROBOTS["LIGHT"].CARGO_SPACE // 2))]
+                                    elif resource_id == resource_ids["power"]:
+                                        if main_factory_cargo.power > 0:
+                                            actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.power, self.env_cfg.ROBOTS["LIGHT"].BATTERY_CAPACITY // 2))]
                         else:
-                            min_power = (
-                                unit.action_queue_cost(game_state) * 2
-                                + unit.unit_cfg.INIT_POWER
-                            )
-                            if unit.power > min_power:
-                                transfer_power = unit.power - min_power
-                                direction = direction_to(
-                                    unit.pos, route.path[route_step + 1]
-                                )
-                                actions[unit_id] = [
-                                    unit.transfer(direction, 4, transfer_power)
-                                ]
+                            if resource_id != resource_ids["power"]:    
+                                min_power = unit.action_queue_cost(game_state) * 3
+                                if unit.power > min_power:
+                                    transfer_power = unit.power - min_power
+                                    direction = direction_to(
+                                        unit.pos, route.path[route_step + 1]
+                                    )
+                                    actions[unit_id] = [
+                                        unit.transfer(direction, 4, transfer_power)
+                                    ]
                     else:  # EVEN CASE
                         resource_threshold = 6  # TODO calculate resource threshold
                         if unit.unit_type == "HEAVY":
@@ -533,25 +560,17 @@ class Agent:
                             ):
                                 actions[unit_id] = [unit.dig(repeat=0, n=1)]
                         elif route_step == 0:
-                            pickup_amount = 100  # TODO calculate pickup amount
+                            pickup_amount = 2 * 50  # TODO calculate pickup amount
                             if factory.state.main_factory is not None and len(
                                 factory.state.robot_missions[
                                     UnitMission.PIPE_FACTORY_TO_FACTORY
                                 ]
                             ) == len(route):
                                 # Has to build a digger robot, so transfer less power
-                                if (
-                                    len(
-                                        factory.state.robot_missions[
-                                            UnitMission.DIG_RUBBLE
-                                        ]
-                                    )
-                                    < self.MAX_DIGGER
-                                    or game_state.factories[self.player][
+                                main_factory = game_state.factories[self.player][
                                         factory.state.main_factory
-                                    ].power
-                                    > 300
-                                ):
+                                    ]
+                                if main_factory.power > 600:
                                     pickup_amount = 0
                                 else:
                                     pickup_amount = max(
@@ -572,13 +591,16 @@ class Agent:
                                 )
                                 == len(factory.state.plans["ore"].route)
                             ):
-                                pickup_amount = max(
-                                    0, (factory.power - 300) // 2
-                                )
+                                if factory.state.ore_disabled:
+                                    pickup_amount = factory.power
+                                else:
+                                    pickup_amount = max(
+                                        0, factory.power // 2
+                                    )
                             pickup_amount = min(pickup_amount, unit.unit_cfg.BATTERY_CAPACITY - unit.power)
                             if pickup_amount > 0:
                                 if unit.power >= unit.action_queue_cost(game_state) * 2:
-                                    actions[unit_id] = [unit.pickup(4, pickup_amount)]
+                                    actions[unit_id] = [unit.pickup(4, min(unit.unit_cfg.BATTERY_CAPACITY, pickup_amount))]
                         else:
                             direction = direction_to(
                                 unit.pos, route.path[route_step - 1]
@@ -663,7 +685,7 @@ class Agent:
                 break
             if unit.state.state == UnitStateEnum.DIGGING_RUBBLE:
                 if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:
-                    if unit.power >= unit.dig_cost(game_state) + unit.unit_cfg.INIT_POWER:
+                    if unit.power >= unit.dig_cost(game_state) + unit.action_queue_cost(game_state) * 10:
                         actions[unit_id] = [unit.dig(repeat=0, n=1)]
                     else:
                         unit.state.state = UnitStateEnum.RUBBLE_MOVING_TO_FACTORY
@@ -689,7 +711,7 @@ class Agent:
                     if unit.power < target_power:
                         if target_power - unit.power <= factory.power:
                             pickup_power = target_power - unit.power + unit.action_queue_cost(game_state)
-                            actions[unit_id] = [unit.pickup(4, pickup_power)]
+                            actions[unit_id] = [unit.pickup(4, min(unit.unit_cfg.BATTERY_CAPACITY, pickup_power))]
                     else:
                         unit.state.state = UnitStateEnum.MOVING_TO_RUBBLE
                         continue
@@ -730,9 +752,16 @@ class Agent:
             elif mission == UnitMission.PIPE_FACTORY_TO_ORE:
                 route = factory.state.plans["ore"].route
                 miner_robots = factory.state.robot_missions[UnitMission.PIPE_MINE_ORE]
-            miner_robot_id = miner_robots[0]  # There is only one miner robot
+            if len(miner_robots) == 0:
+                # miner robot died :(
+                miner_robot_id = mission_robots.pop(0)
+            else:
+                miner_robot_id = miner_robots[0]  # There is only one miner robot
             miner_robot_state = self.unit_states[miner_robot_id]
-            miner_robot_state.set_role(UnitRole.STATIONARY_MINER)
+            if len(mission_robots) > 0:
+                miner_robot_state.set_role(UnitRole.STATIONARY_MINER)
+            else:
+                miner_robot_state.set_role(UnitRole.MINER_TRANSPORTER)
             miner_robot_state.set_target_pos(route.path[-1])
             pipe_is_full = len(mission_robots) + 1 == len(route)
             for i, robot_id in enumerate(mission_robots):
@@ -756,6 +785,8 @@ class Agent:
 
         elif mission == UnitMission.DIG_RUBBLE:
             unit.state.set_role(UnitRole.RUBBLE_DIGGER)
+        elif mission == UnitMission.NONE:
+            unit.state.set_role(UnitRole.NONE)
         else:
             raise ValueError("Invalid mission")
 
@@ -773,14 +804,14 @@ class Agent:
             # TODO check if we can override miner (if unit.unit_type == "HEAVY")
             if len(factory.state.robot_missions[UnitMission.PIPE_MINE_ICE]) == 0:
                 mission = UnitMission.PIPE_MINE_ICE
-            elif len(factory.state.robot_missions[UnitMission.PIPE_MINE_ORE]) == 0:
+            elif not factory.state.ore_disabled and len(factory.state.robot_missions[UnitMission.PIPE_MINE_ORE]) == 0:
                 mission = UnitMission.PIPE_MINE_ORE
             elif (
                 len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ICE]) + 1
                 < factory.state.plans["ice"].max_route_robots
             ):
                 mission = UnitMission.PIPE_FACTORY_TO_ICE
-            elif (
+            elif not factory.state.ore_disabled and (
                 len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]) + 1
                 < factory.state.plans["ore"].max_route_robots
             ):
@@ -1046,6 +1077,17 @@ class Agent:
 
         for factory_id, factory in factories.items():
             # handle action of robots bound to factories
+            if factory.state.sub_factory is not None and len(factories[factory.state.sub_factory].state.robot_missions[UnitMission.DIG_RUBBLE]) == factory.state.MAX_DIGGER:
+                factory.ore_disabled = True
+                robots_to_reassign = factory.state.robot_missions[UnitMission.PIPE_MINE_ORE] + factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]
+                for robot_id in robots_to_reassign:
+                    unit = units[robot_id]
+                    factory.state.robot_missions[unit.state.mission].remove(unit.unit_id)
+                    unit.state.mission = UnitMission.NONE
+                    factory.state.robot_missions[unit.state.mission].append(unit.unit_id)
+            if factory.state.main_factory is not None and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) > 0:
+                if remaining_steps < 100:
+                    factory.state.MAX_DIGGER = len(factory.state.robot_missions[UnitMission.DIG_RUBBLE])
             factory_pickup_robots = 0
             for mission, mission_robot_ids in factory.state.robot_missions.items():
                 for unit_id in mission_robot_ids:
@@ -1064,9 +1106,11 @@ class Agent:
                     spreads * (spreads + 1) * (2 * spreads + 1) / 6
                 ) * self.env_cfg.MIN_LICHEN_TO_SPREAD
                 estimated_water_cost = water_cost * multiple
+                if remaining_steps > 30:
+                    estimated_water_cost = 1e9
                 if (estimated_water_cost + remaining_steps) <= factory.cargo.water:
                     actions[factory_id] = factory.water()
-                elif remaining_steps == 1 and water_cost < factory.cargo.water:
+                elif remaining_steps == 1 and water_cost + 1 < factory.cargo.water:
                     actions[factory_id] = factory.water()
                 else:  # or build robots
                     robot_ids = sum(factory.state.robot_missions.values(), start=[])
@@ -1086,7 +1130,9 @@ class Agent:
                             factory.state.plans.values(),
                         )
                     )
-                    if len(robot_ids) < 2:
+                    if factory.state.ore_disabled:
+                        required_transmitters -= factory.state.plans['ore'].max_route_robots
+                    if len(robot_ids) < (2 - factory.state.ore_disabled):
                         if factory.can_build_heavy(
                             game_state
                         ):  # TODO check if we can build one more light if len(robots) == 0
@@ -1113,7 +1159,7 @@ class Agent:
                         actions[factory_id] = factory.build_light()
                 elif len(
                     factory.state.robot_missions[UnitMission.DIG_RUBBLE]
-                ) < self.MAX_DIGGER and factory.can_build_heavy(game_state):  # TODO build more heavy units
+                ) < factory.state.MAX_DIGGER and factory.can_build_heavy(game_state):  # TODO build more heavy units
                     actions[factory_id] = factory.build_heavy()
                 elif (
                     factory.cargo.water - (factory.water_cost(game_state) + 1) * remaining_steps > 0
@@ -1126,6 +1172,8 @@ class Agent:
         actions = stop_movement_collisions(
             obs, game_state, self.env_cfg, self.player, actions, self.unit_states
         )
+        if actions is None:
+            raise ValueError("Invalid actions")
         return actions
 
 
