@@ -1093,47 +1093,47 @@ class Agent:
             # handle factory actions
             if factory.state.role == FactoryRole.MAIN:
                 water_cost = factory.water_cost(game_state)
-                if remaining_steps < self.env_cfg.MIN_LICHEN_TO_SPREAD:
-                    if (water_cost + 1) * remaining_steps < factory.cargo.water:
-                        actions[factory_id] = factory.water()
-                elif remaining_steps == 1 and water_cost + 1 < factory.cargo.water:
-                    actions[factory_id] = factory.water()
-                else:  # or build robots
-                    robot_ids = sum(factory.state.robot_missions.values(), start=[])
-                    light_robots = [
-                        robot_id
-                        for robot_id in robot_ids
-                        if units[robot_id].unit_type == "LIGHT"
-                    ]
-                    heavy_robots = [
-                        robot_id
-                        for robot_id in robot_ids
-                        if units[robot_id].unit_type == "HEAVY"
-                    ]
-                    required_transmitters = sum(
-                        map(
-                            lambda plan: plan.max_route_robots,
-                            factory.state.plans.values(),
-                        )
+                # if remaining_steps < self.env_cfg.MIN_LICHEN_TO_SPREAD:
+                #     if (water_cost + 1) * remaining_steps < factory.cargo.water:
+                #         actions[factory_id] = factory.water()
+                # elif remaining_steps == 1 and water_cost + 1 < factory.cargo.water:
+                #     actions[factory_id] = factory.water()
+                # else:  # or build robots
+                robot_ids = sum(factory.state.robot_missions.values(), start=[])
+                light_robots = [
+                    robot_id
+                    for robot_id in robot_ids
+                    if units[robot_id].unit_type == "LIGHT"
+                ]
+                heavy_robots = [
+                    robot_id
+                    for robot_id in robot_ids
+                    if units[robot_id].unit_type == "HEAVY"
+                ]
+                required_transmitters = sum(
+                    map(
+                        lambda plan: plan.max_route_robots,
+                        factory.state.plans.values(),
                     )
-                    if factory.state.ore_disabled:
-                        required_transmitters -= factory.state.plans['ore'].max_route_robots
-                    if len(robot_ids) < (2 - factory.state.ore_disabled):
-                        if factory.can_build_heavy(
-                            game_state
-                        ):  # TODO check if we can build one more light if len(robots) == 0
-                            actions[factory_id] = factory.build_heavy()
-                        elif factory.can_build_light(game_state):
-                            actions[factory_id] = factory.build_light()
-                        else:
-                            ...  # Doomed
-                    elif len(robot_ids) < required_transmitters:
-                        if factory.can_build_light(game_state):
-                            actions[factory_id] = factory.build_light()
+                )
+                if factory.state.ore_disabled:
+                    required_transmitters -= factory.state.plans['ore'].max_route_robots
+                if len(robot_ids) < (2 - factory.state.ore_disabled):
+                    if factory.can_build_heavy(
+                        game_state
+                    ):  # TODO check if we can build one more light if len(robots) == 0
+                        actions[factory_id] = factory.build_heavy()
+                    elif factory.can_build_light(game_state):
+                        actions[factory_id] = factory.build_light()
                     else:
-                        ...
-                        # if factory.can_build_heavy(game_state):
-                        #     actions[factory_id] = factory.build_heavy()
+                        ...  # Doomed
+                elif len(robot_ids) < required_transmitters:
+                    if factory.can_build_light(game_state):
+                        actions[factory_id] = factory.build_light()
+                else:
+                    ...
+                    # if factory.can_build_heavy(game_state):
+                    #     actions[factory_id] = factory.build_heavy()
 
             elif factory.state.role == FactoryRole.SUB:
                 required_transmitters = factory.state.plans[
