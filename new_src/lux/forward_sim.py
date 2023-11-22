@@ -197,7 +197,8 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
                 u.state.route_cache = None
                 actions[u.unit_id] = [u.move(new_direction)]
             
-        if np.all(a == u.move(0)):
+        if np.all(a == u.move(0)) and u.unit_id in actions:
+            del actions[u.unit_id]
             continue  # It does not move!
         actions[u.unit_id] = [a]
         action_was_updated = True
