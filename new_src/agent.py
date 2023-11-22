@@ -1229,7 +1229,9 @@ class Agent:
                 raise ValueError(f"Invalid factory role {factory.state.role}")
 
         action_was_updated = True
-        while action_was_updated:
+        for _ in range(10):
+            if not action_was_updated:
+                break
             action_was_updated, actions = stop_movement_collisions(
                 obs, game_state, self.env_cfg, self.player, actions, self.unit_states
             )
