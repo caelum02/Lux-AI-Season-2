@@ -334,6 +334,8 @@ class Agent:
         self, game_state: GameState, factory: Factory, unit: Unit, actions, factory_pickup_robots
     ):
         if unit.state.mission == UnitMission.NONE:
+            if len(unit.action_queue) > 0:
+                return actions
             if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:
                 if unit.power >= unit.unit_cfg.DIG_COST + unit.action_queue_cost(game_state):
                     time_to_dig = (unit.power - unit.action_queue_cost(game_state)) // unit.unit_cfg.DIG_COST
@@ -598,7 +600,7 @@ class Agent:
                                         factory.state.main_factory
                                     ]
                                 if main_factory.power > 600:
-                                    pickup_amount = 0
+                                    pickup_amount = len(route) * unit.action_queue_cost(game_state) * 2
                                 else:
                                     pickup_amount = max(
                                         0, factory.power - 300
@@ -1239,7 +1241,7 @@ class Agent:
                     else:
                         print(f"Factory {factory_id} does not have enough water", file=sys.stderr)
                 elif remaining_steps <= len(water_costs):
-                    water_loss = 1  # default
+                    water_loss = 2  # include main factory
                     if water_costs[remaining_steps - 1] + (water_loss - factory.state.average_water_income) * remaining_steps <= factory.cargo.water:
                         actions[factory_id] = factory.water()
             else:
