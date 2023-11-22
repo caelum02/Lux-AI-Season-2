@@ -155,7 +155,8 @@ class FactoryState:
             self.robot_missions = {mission: [] for mission in UnitMission}
     
     def update_average_water_income(self, water_income, r = 1 / 50):
-        self.average_water_income = self.average_water_income * r + water_income * (1-r)
+        self.average_water_income = min(60 / 4 / 4, self.average_water_income * r + water_income * (1-r))
+        # NOTE water bursts after ore becomes disabled
 
 
 @dataclass

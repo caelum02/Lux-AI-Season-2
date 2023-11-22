@@ -560,10 +560,16 @@ class Agent:
                                             actions[unit_id] = [unit.pickup(resource_id, min(game_state.factories[self.player][main_factory].power, self.env_cfg.ROBOTS["LIGHT"].BATTERY_CAPACITY))]
                         else:
                             if resource_id != resource_ids["power"]:    
-                                min_power = unit.action_queue_cost(game_state) * 3
+                                min_power = unit.action_queue_cost(game_state) * 4
                                 pipe_full = game_state.units[self.player][factory.state.robot_missions[unit.state.mission][-1]].state.role.is_stationary
                                 if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0 and pipe_full:
                                     min_power += unit.unit_cfg.DIG_COST  # for rubble mining
+                                elif factory.state.main_factory is not None and pipe_full:
+                                    main_factory = game_state.factories[self.player][
+                                            factory.state.main_factory
+                                        ]
+                                    if main_factory.power > 600 and route_step == len(route) - 2:
+                                        min_power = 0
                                 if unit.power > min_power:
                                     transfer_power = unit.power - min_power
                                     direction = direction_to(
@@ -600,7 +606,15 @@ class Agent:
                                         factory.state.main_factory
                                     ]
                                 if main_factory.power > 600:
-                                    pickup_amount = len(route) * unit.action_queue_cost(game_state) * 2
+                                     # cycle = game_state.real_env_steps // self.env_cfg.CYCLE_LENGTH
+                                    turn_in_cycle = game_state.real_env_steps % self.env_cfg.CYCLE_LENGTH
+                                    is_day = turn_in_cycle < self.env_cfg.DAY_LENGTH
+                                    is_night = not is_day
+                                    remaining_days = 0 if is_night else (self.env_cfg.DAY_LENGTH - turn_in_cycle)
+                                    if remaining_days > (len(route) - 1):
+                                        pickup_amount = 0
+                                    else:
+                                        pickup_amount = (len(route) - 1) * unit.action_queue_cost(game_state) * 2 - 1
                                 else:
                                     pickup_amount = max(
                                         0, factory.power - 300
