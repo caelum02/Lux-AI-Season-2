@@ -510,6 +510,7 @@ class Agent:
                 arrived = follow_route_to(unit.state.target_pos)
                 if arrived:
                     unit.state.state = UnitStateEnum.PERFORMING_ROLE
+                    unit.state.waiting_for = 0
                     continue
                 break
             if unit.state.state == UnitStateEnum.PERFORMING_ROLE:
@@ -691,8 +692,10 @@ class Agent:
                                 + unit.unit_cfg.INIT_POWER
                     )  # TODO Consider leading units' powers (especially the miner!)
                     if unit.power <= min_power + unit.action_queue_cost(game_state) * 3:
-                        unit.state.state = UnitStateEnum.MOVING_TO_FACTORY
-                        continue 
+                        unit.state.waiting_for += 1
+                        if unit.state.waiting_for > 4:
+                            unit.state.state = UnitStateEnum.MOVING_TO_FACTORY
+                            continue 
                     if unit.cargo.from_id(resource_id) < resource_threshold:
                         if unit.state.role.is_miner:
                             if (

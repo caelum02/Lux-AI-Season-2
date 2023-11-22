@@ -94,6 +94,7 @@ class UnitState:
     role : UnitRole | None = None
     target_pos : Position | None = None
     route_cache: Route | None = None
+    waiting_for: int = 0
     # Invalid state when role or idle_pos changed
 
     def set_role(self, role: UnitRole):
