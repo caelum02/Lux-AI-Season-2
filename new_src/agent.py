@@ -89,6 +89,9 @@ class Agent:
 
             # how many factories you have left to place
             factories_to_place = game_state.teams[self.player].factories_to_place
+            water_left = game_state.teams[self.player].water
+            if water_left == 0:
+                factories_to_place = 0
             my_turn_to_place = my_turn_to_place_factory(
                 game_state.teams[self.player].place_first, step
             )
@@ -287,13 +290,14 @@ class Agent:
                     self.factory_states[main_factory_id].ban_list = [
                         *main_factory_plans['ice'].route.path,
                         *main_factory_plans['ore'].route.path,
-                        *sub_factory_plans['factory_to_factory'].route.path,
                     ]
                     self.factory_states[main_factory_id].empty_factory_locs = empty_factory_locs
                     es_state.latest_main_factory = None
                     es_state.sub_factory_map[main_factory_id] = new_factory_id
-
-                    spawn_action = {"spawn": spawn_loc, "water": 150, "metal": 60}
+                    res = dict(water=150, metal=60)
+                    if factories_to_place == 2:  # Last main-sub factory pair
+                        res = dict(water=game_state.teams[self.player].water, metal=game_state.teams[self.player].metal)
+                    spawn_action = {"spawn": spawn_loc, **res}
 
                     # Debug message
                     # print(
@@ -324,9 +328,14 @@ class Agent:
     def handle_robot_actions(
         self, game_state: GameState, factory: Factory, unit: Unit, actions, factory_pickup_robots
     ):
-        if unit.unit_id == "unit_145" and game_state.real_env_steps == 752:
-            breakpoint()
         if unit.state.mission == UnitMission.NONE:
+            if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:
+                if unit.power >= unit.unit_cfg.DIG_COST + unit.action_queue_cost(game_state):
+                    time_to_dig = (unit.power - unit.action_queue_cost(game_state)) // unit.unit_cfg.DIG_COST
+                    time_to_dig = min(time_to_dig, int(np.ceil(game_state.board.rubble[unit.pos[0], unit.pos[1]] / unit.unit_cfg.DIG_RUBBLE_REMOVED)))
+                    actions[unit.unit_id] = [unit.dig(repeat=0, n=time_to_dig)]
+                else:
+                    ... # TODO: Handle recharging
             return actions
         unit_id = unit.unit_id
         factory_inf_distance = norm(factory.pos - unit.pos, ord=np.inf)
@@ -380,6 +389,8 @@ class Agent:
                     ban_list = factory.state.ban_list.copy()
                     if factory.state.main_factory is not None:
                         ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+                    if factory.state.sub_factory is not None:
+                        ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
                     ban_list += self.enemy_factory_tile_ban_list
                     route_to_target = get_shortest_loop(
                         self.get_move_cost_map(game_state),
@@ -520,21 +531,23 @@ class Agent:
                                         self.player
                                     ][main_factory].cargo
                                     if resource_id == resource_ids["water"]:
-                                        if main_factory_cargo.water >= game_state.remaining_steps:
-                                            actions[unit_id] = [unit.pickup(resource_id, 10)]
-                                        else:  # if main_factory lacks water, transfer minimum water
-                                            actions[unit_id] = [unit.pickup(resource_id, 2)]
+                                        pickup_amount = main_factory_cargo.water - min(10, game_state.remaining_steps)
+                                        pickup_amount = min(pickup_amount, self.env_cfg.ROBOTS["LIGHT"].CARGO_SPACE)
+                                        pickup_amount = min(pickup_amount, unit.unit_cfg.CARGO_SPACE - unit.cargo.water)
+                                        if pickup_amount > 0:
+                                            actions[unit_id] = [unit.pickup(resource_id, pickup_amount)]
                                     elif resource_id == resource_ids["metal"]:
                                         if main_factory_cargo.metal > 0:
-                                            actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.metal, self.env_cfg.ROBOTS["LIGHT"].CARGO_SPACE // 2))]
+                                            actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.metal, self.env_cfg.ROBOTS["LIGHT"].CARGO_SPACE))]
                                     elif resource_id == resource_ids["power"]:
-                                        if main_factory_cargo.power > 0:
-                                            actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.power, self.env_cfg.ROBOTS["LIGHT"].BATTERY_CAPACITY // 2))]
+                                        if main_factory.power > 0:
+                                            actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.power, self.env_cfg.ROBOTS["LIGHT"].BATTERY_CAPACITY))]
                         else:
                             if resource_id != resource_ids["power"]:    
                                 min_power = unit.action_queue_cost(game_state) * 3
-                                # if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:  # TODO Rubble mining!
-                                #     min_power += unit.unit_cfg.DIG_COST
+                                pipe_full = game_state.units[self.player][factory.state.robot_missions[unit.state.mission][-1]].state.role.is_stationary
+                                if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0 and pipe_full:
+                                    min_power += unit.unit_cfg.DIG_COST  # for rubble mining
                                 if unit.power > min_power:
                                     transfer_power = unit.power - min_power
                                     direction = direction_to(
@@ -615,11 +628,17 @@ class Agent:
                                             unit.cargo.from_id(resource_id),
                                         )
                                     ]
-                            if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:  # TODO Rubble Mining!!
-                                ...
-                                # if factory.cargo.from_id(resource_id) > 50:
-                                #     if unit.power >= unit.unit_cfg.DIG_COST + unit.action_queue_cost(game_state):
-                                #         actions[unit_id] = [unit.dig(direction, repeat=0, n=1)]  # rubble mining
+                            if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:  # Rubble Mining!!
+                                pipe_full = game_state.units[self.player][factory.state.robot_missions[unit.state.mission][-1]].state.role.is_stationary
+                                max_digger_achieved = False
+                                if factory.state.role == FactoryRole.MAIN:
+                                    if factory.state.sub_factory is not None:
+                                        max_digger_achieved = len(game_state.factories[self.player][factory.state.sub_factory].state.robot_missions[UnitMission.DIG_RUBBLE]) >= game_state.factories[self.player][factory.state.sub_factory].state.MAX_DIGGER
+                                elif factory.state.role == FactoryRole.SUB:
+                                    max_digger_achieved = len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) >= factory.state.MAX_DIGGER
+                                if pipe_full and max_digger_achieved:
+                                    if unit.power >= unit.unit_cfg.DIG_COST + unit.action_queue_cost(game_state):
+                                        actions[unit_id] = [unit.dig(repeat=0, n=1)]
 
                 else:
                     if resource_type in ["ice", "ore"]:
