@@ -165,8 +165,10 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
 
         all_stopped_units.update(stopped_units)
 
+    action_was_updated = False
     for u, a in all_stopped_units.items():
         if u.state.role == UnitRole.RUBBLE_DIGGER:
             continue
         actions[u.unit_id] = [a]
-    return actions
+        action_was_updated = True
+    return action_was_updated, actions
