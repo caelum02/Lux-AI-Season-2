@@ -414,6 +414,8 @@ class Agent:
                     and unit.power >= move_cost + unit.action_queue_cost(game_state)
                 ):
                     actions[unit_id] = [unit.move(direction, repeat=0, n=1)]
+                elif move_cost is None:
+                    unit.state.route_cache = None
                 return False
 
         def follow_route_to(target) -> bool:
@@ -547,8 +549,8 @@ class Agent:
                                         if main_factory_cargo.metal > 0:
                                             actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.metal, self.env_cfg.ROBOTS["LIGHT"].CARGO_SPACE))]
                                     elif resource_id == resource_ids["power"]:
-                                        if main_factory.power > 0:
-                                            actions[unit_id] = [unit.pickup(resource_id, min(main_factory_cargo.power, self.env_cfg.ROBOTS["LIGHT"].BATTERY_CAPACITY))]
+                                        if game_state.factories[self.player][main_factory].power > 0:
+                                            actions[unit_id] = [unit.pickup(resource_id, min(game_state.factories[self.player][main_factory].power, self.env_cfg.ROBOTS["LIGHT"].BATTERY_CAPACITY))]
                         else:
                             if resource_id != resource_ids["power"]:    
                                 min_power = unit.action_queue_cost(game_state) * 3
@@ -1086,6 +1088,8 @@ class Agent:
                 factory_state.robot_missions[mission].remove(unit_id)
 
         for unit_id in unit_ids_to_destroy:
+            if self.unit_states[unit_id].role == UnitRole.RUBBLE_DIGGER:
+                factory_state.MAX_DIGGER = max(1, factory_state.MAX_DIGGER - 1)
             del self.unit_states[unit_id]
 
         for factory_id, mission in missions_to_reassign:
@@ -1217,8 +1221,10 @@ class Agent:
                 ) < factory.state.MAX_DIGGER and factory.can_build_heavy(game_state):  # TODO build more heavy units
                     actions[factory_id] = factory.build_heavy()
                 elif factory.water_cost(game_state) > 0:
-                    if factory.water_cost(game_state) + 1 <= factory.cargo.water:
+                    if factory.water_cost(game_state) + min(25, remaining_steps) <= factory.cargo.water:
                         actions[factory_id] = factory.water()
+                    elif factory.cargo.water == 1:
+                        print(f"Factory {factory_id} is going to die!!", file=sys.stderr)
                     else:
                         print(f"Factory {factory_id} does not have enough water", file=sys.stderr)
                 elif remaining_steps <= len(water_costs):

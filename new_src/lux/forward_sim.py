@@ -168,6 +168,21 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
     action_was_updated = False
     for u, a in all_stopped_units.items():
         if u.state.role == UnitRole.RUBBLE_DIGGER:
+            if u.unit_id in actions:
+                original_action = actions[u.unit_id][0]
+                direction = DIRECTION_T.from_float(original_action[1])
+            else:
+                direction = DIRECTION_T.CENTER
+            direction_costs = []
+            for new_direction in direction.orthogonal_directions:
+                if u.move_cost(game_state, new_direction) is not None and u.move_cost(game_state, new_direction) + u.action_queue_cost(game_state) <= u.power:
+                    direction_costs.append((new_direction, u.move_cost(game_state, new_direction)))
+            if len(direction_costs) > 0:
+                id_ = np.random.randint(len(direction_costs))
+                new_direction = direction_costs[id_][0]
+                u.state.target_pos = None
+                u.state.route_cache = None
+                actions[u.unit_id] = [u.move(new_direction)]
             continue
         actions[u.unit_id] = [a]
         action_was_updated = True
