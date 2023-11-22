@@ -569,7 +569,7 @@ class Agent:
                                             factory.state.main_factory
                                         ]
                                     if main_factory.power > 600 and route_step == len(route) - 2:
-                                        min_power = 0
+                                        min_power = unit.unit_cfg.BATTERY_CAPACITY
                                 if unit.power > min_power:
                                     transfer_power = unit.power - min_power
                                     direction = direction_to(
@@ -648,8 +648,17 @@ class Agent:
                             direction = direction_to(
                                 unit.pos, route.path[route_step - 1]
                             )
-
-                            if unit.cargo.from_id(resource_id) > 0:
+                            if resource_id == resource_ids["power"]:
+                                min_power = unit.action_queue_cost(game_state) * 4
+                                pipe_full = game_state.units[self.player][factory.state.robot_missions[unit.state.mission][-1]].state.role.is_stationary
+                                if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0 and pipe_full:
+                                    min_power += unit.unit_cfg.DIG_COST  # for rubble mining
+                                if unit.power > min_power:
+                                    transfer_power = unit.power - min_power
+                                    actions[unit_id] = [
+                                        unit.transfer(direction, 4, transfer_power)
+                                    ]
+                            elif unit.cargo.from_id(resource_id) > 0:
                                 if unit.power >= unit.action_queue_cost(game_state):
                                     actions[unit_id] = [
                                         unit.transfer(
