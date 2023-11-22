@@ -44,6 +44,7 @@ class Agent:
         self.move_cost_map = -1, None
         self.enemy_factory_tiles = {}
         self.enemy_factory_tile_ban_list = []
+        self.global_ban_list = []
 
     def _num_factories(self, game_state: GameState) -> int:
         factories = game_state.factories
@@ -390,12 +391,15 @@ class Agent:
                 else:
                     unit.state.route_cache = None
                 if unit.state.route_cache is None:
-                    ban_list = factory.state.ban_list.copy()
-                    if factory.state.main_factory is not None:
-                        ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
-                    if factory.state.sub_factory is not None:
-                        ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
-                    ban_list += self.enemy_factory_tile_ban_list
+                    if unit.state.role == UnitRole.RUBBLE_DIGGER:
+                        ban_list = self.global_ban_list.copy()
+                    else:
+                        ban_list = factory.state.ban_list.copy()
+                        if factory.state.main_factory is not None:
+                            ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+                        if factory.state.sub_factory is not None:
+                            ban_list += game_state.factories[self.player][factory.state.sub_factory].state.ban_list
+                        ban_list += self.enemy_factory_tile_ban_list
                     route_to_target = get_shortest_loop(
                         self.get_move_cost_map(game_state),
                         unit.pos,
@@ -435,9 +439,10 @@ class Agent:
             return False
 
         def find_next_rubble_to_mine():
-            ban_list = factory.state.ban_list.copy()
-            if factory.state.main_factory is not None:
-                ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
+            ban_list = self.global_ban_list.copy()
+            # ban_list = factory.state.ban_list.copy()
+            # if factory.state.main_factory is not None:
+            #     ban_list += game_state.factories[self.player][factory.state.main_factory].state.ban_list
             rubble_map = game_state.board.rubble.copy()
             for ban_loc in ban_list:
                 rubble_map[ban_loc[0], ban_loc[1]] = 0
@@ -1023,6 +1028,11 @@ class Agent:
             self.enemy_factory_tiles[factory_id] = list(map(tuple, get_factory_tiles(factory.pos)))
             self.enemy_factory_tile_ban_list += self.enemy_factory_tiles[factory_id]
 
+        for factory_id, factory in factories.items():
+            factory_state = self.factory_states[factory_id]
+            for plan in factory_state.plans.values():
+                self.global_ban_list += plan.route.path
+
     def _unregister_factories(self, game_state):
         # Remove robots from factories if factory is destroyed
         factory_ids_to_destroy = []
@@ -1132,13 +1142,14 @@ class Agent:
                     robots_to_reassign = factory.state.robot_missions[UnitMission.PIPE_MINE_ORE] + factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]
                     for pos in factory.state.plans["ore"].route.path:
                         factory.state.ban_list.remove(pos)
+                        self.global_ban_list.remove(pos)
                     for robot_id in robots_to_reassign:
                         unit = units[robot_id]
                         factory.state.robot_missions[unit.state.mission].remove(unit.unit_id)
                         unit.state.mission = UnitMission.NONE
                         factory.state.robot_missions[unit.state.mission].append(unit.unit_id)
-                        if unit.unit_type == "HEAVY":
-                            factory.state.ban_list.append(unit.pos)  # NOTE unit may move
+                        # if unit.unit_type == "HEAVY":
+                        #     factory.state.ban_list.append(unit.pos)  # NOTE unit may move
 
             if factory.state.main_factory is not None and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) < factory.state.MAX_DIGGER:
                 if remaining_steps < 100 and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) > 0:

@@ -173,6 +173,12 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
                 direction = DIRECTION_T.from_float(original_action[1])
             else:
                 direction = DIRECTION_T.CENTER
+            new_pos = u.pos + move_deltas[direction]
+            new_pos_hash = tuple(new_pos)
+            colliding_units = units_map[new_pos_hash] + new_units_map[new_pos_hash]
+            heavy_colliding_units = [unit for unit in colliding_units if unit.unit_id != u.unit_id and unit.unit_type == "HEAVY"]
+            if len(heavy_colliding_units) == 0:
+                continue
             direction_costs = []
             for new_direction in direction.orthogonal_directions:
                 if u.move_cost(game_state, new_direction) is not None and u.move_cost(game_state, new_direction) + u.action_queue_cost(game_state) <= u.power:
