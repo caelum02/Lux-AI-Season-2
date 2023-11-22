@@ -138,6 +138,8 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
             surviving_unit = most_power_unit
             surviving_route = unit_states[surviving_unit.unit_id].following_route
             for u in units:
+                if u.unit_id == surviving_unit.unit_id:
+                    continue
                 if unit_states[u.unit_id].state == UnitStateEnum.MOVING_TO_START:
                     direction = get_avoiding_direction(surviving_route, u.pos, ban_list)
                     if u.power >= u.move_cost(game_state, direction) + u.action_queue_cost(game_state):
@@ -156,6 +158,8 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
                         stopped_units[u] = u.move(0)
             else:
                 for u in units:
+                    if u.unit_id == surviving_unit.unit_id:
+                        continue
                     if unit_states[u.unit_id].state == UnitStateEnum.MOVING_TO_START:
                         direction = get_avoiding_direction(surviving_route, u.pos, ban_list)
                         stopped_units[u] = u.move(direction)
@@ -187,8 +191,7 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
                 if u.move_cost(game_state, new_direction) is not None and u.move_cost(game_state, new_direction) + u.action_queue_cost(game_state) <= u.power:
                     direction_costs.append((new_direction, u.move_cost(game_state, new_direction)))
             if len(direction_costs) > 0:
-                # id_ = np.random.randint(len(direction_costs))
-                id_ = 0  # disable randomness for debugging
+                id_ = np.random.randint(len(direction_costs))
                 new_direction = direction_costs[id_][0]
                 u.state.target_pos = None
                 u.state.route_cache = None
