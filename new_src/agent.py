@@ -461,7 +461,10 @@ class Agent:
             if unit.state.state == UnitStateEnum.MOVING_TO_START:
                 arrived = move_to(route.path[0])
                 if arrived:
-                    unit.state.state = UnitStateEnum.PICKING_RESOURCE
+                    if unit.state.role.is_stationary:
+                        unit.state.state = UnitStateEnum.MOVING_TO_TARGET
+                    else:
+                        unit.state.state = UnitStateEnum.PICKING_RESOURCE
                     continue
                 break
             if unit.state.state == UnitStateEnum.PICKING_RESOURCE:
@@ -1199,8 +1202,7 @@ class Agent:
                 required_transmitters = factory.state.plans[
                     "factory_to_factory"
                 ].max_route_robots
-                robot_ids = sum(factory.state.robot_missions.values(), start=[])
-                if len(robot_ids) < required_transmitters:
+                if len(factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_FACTORY]) < required_transmitters:
                     if factory.can_build_light(game_state):
                         actions[factory_id] = factory.build_light()
                 elif len(
