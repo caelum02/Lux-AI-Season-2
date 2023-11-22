@@ -295,6 +295,10 @@ class Agent:
                     es_state.latest_main_factory = None
                     es_state.sub_factory_map[main_factory_id] = new_factory_id
                     res = dict(water=150, metal=60)
+                    if factories_to_place % 2 == 0:
+                        more_res = self.env_cfg.ROBOTS["HEAVY"].METAL_COST + sub_factory_plans['factory_to_factory'].max_route_robots
+                        if (more_res - 60) + 300 * ((factories_to_place - 1) // 2) <= game_state.teams[self.player].metal:
+                            res = dict(water=150, metal=more_res)
                     if factories_to_place == 2:  # Last main-sub factory pair
                         res = dict(water=game_state.teams[self.player].water, metal=game_state.teams[self.player].metal)
                     spawn_action = {"spawn": spawn_loc, **res}
@@ -1122,13 +1126,16 @@ class Agent:
                 if not factory.state.ore_disabled:
                     factory.state.ore_disabled = True
                     robots_to_reassign = factory.state.robot_missions[UnitMission.PIPE_MINE_ORE] + factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]
+                    for pos in factory.state.plans["ore"].route.path:
+                        factory.state.ban_list.remove(pos)
                     for robot_id in robots_to_reassign:
                         unit = units[robot_id]
                         factory.state.robot_missions[unit.state.mission].remove(unit.unit_id)
                         unit.state.mission = UnitMission.NONE
                         factory.state.robot_missions[unit.state.mission].append(unit.unit_id)
-                    for pos in factory.state.plans["ore"].route.path:
-                        factory.state.ban_list.remove(pos)
+                        if unit.unit_type == "HEAVY":
+                            factory.state.ban_list.append(unit.pos)  # NOTE unit may move
+
             if factory.state.main_factory is not None and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) < factory.state.MAX_DIGGER:
                 if remaining_steps < 100 and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) > 0:
                     factory.state.MAX_DIGGER = len(factory.state.robot_missions[UnitMission.DIG_RUBBLE])
