@@ -115,13 +115,13 @@ def stop_movement_collisions(obs, game_state, env_cfg, agent, actions, unit_stat
         if len(units) <= 1:
             continue
 
-        if len(units_map[pos_hash]) > 0:
-            # There is a stationary unit, avoid.
-            surviving_unit = units_map[pos_hash][0]
-            for u in units:
-                if u.unit_id != surviving_unit.unit_id:
-                    stopped_units[u] = u.move(0)
-        elif len(heavy_entered_pos[pos_hash]) > 1:
+        # if len(units_map[pos_hash]) > 0:
+        #     # There is a stationary unit, avoid.
+        #     surviving_unit = units_map[pos_hash][0]
+        #     for u in units:
+        #         if u.unit_id != surviving_unit.unit_id:
+        #             stopped_units[u] = u.move(0)
+        if len(heavy_entered_pos[pos_hash]) > 1:
             # more than two heavy collide while moving, less powerful unit yields.
             most_power_unit = units[0]
             for u in units:

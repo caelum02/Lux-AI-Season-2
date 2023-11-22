@@ -1116,13 +1116,16 @@ class Agent:
         for factory_id, factory in factories.items():
             # handle action of robots bound to factories
             if factory.state.sub_factory is not None and len(factories[factory.state.sub_factory].state.robot_missions[UnitMission.DIG_RUBBLE]) == factory.state.MAX_DIGGER:
-                factory.ore_disabled = True
-                robots_to_reassign = factory.state.robot_missions[UnitMission.PIPE_MINE_ORE] + factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]
-                for robot_id in robots_to_reassign:
-                    unit = units[robot_id]
-                    factory.state.robot_missions[unit.state.mission].remove(unit.unit_id)
-                    unit.state.mission = UnitMission.NONE
-                    factory.state.robot_missions[unit.state.mission].append(unit.unit_id)
+                if not factory.state.ore_disabled:
+                    factory.state.ore_disabled = True
+                    robots_to_reassign = factory.state.robot_missions[UnitMission.PIPE_MINE_ORE] + factory.state.robot_missions[UnitMission.PIPE_FACTORY_TO_ORE]
+                    for robot_id in robots_to_reassign:
+                        unit = units[robot_id]
+                        factory.state.robot_missions[unit.state.mission].remove(unit.unit_id)
+                        unit.state.mission = UnitMission.NONE
+                        factory.state.robot_missions[unit.state.mission].append(unit.unit_id)
+                    for pos in factory.state.plans["ore"].route.path:
+                        factory.state.ban_list.remove(pos)
             if factory.state.main_factory is not None and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) < factory.state.MAX_DIGGER:
                 if remaining_steps < 100 and len(factory.state.robot_missions[UnitMission.DIG_RUBBLE]) > 0:
                     factory.state.MAX_DIGGER = len(factory.state.robot_missions[UnitMission.DIG_RUBBLE])
