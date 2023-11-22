@@ -2,7 +2,7 @@ import sys
 from lux.kit import obs_to_game_state, EnvConfig, GameState
 from lux.utils import *
 from lux.pathfinding import get_shortest_loop
-from lux.forward_sim import stop_movement_collisions
+from lux.forward_sim import stop_movement_collisions, move_deltas
 from lux.config import resource_ids
 
 import numpy as np
@@ -660,14 +660,17 @@ class Agent:
                                         unit.transfer(direction, 4, transfer_power)
                                     ]
                             elif unit.cargo.from_id(resource_id) > 0:
-                                if unit.power >= unit.action_queue_cost(game_state):
-                                    actions[unit_id] = [
-                                        unit.transfer(
-                                            direction,
-                                            resource_id,
-                                            unit.cargo.from_id(resource_id),
-                                        )
-                                    ]
+                                unit_poses = sum([[tuple(game_state.units[self.player][unit_id].pos) for unit_id in unit_ids] for unit_ids in factory.state.robot_missions.values()],start=[])
+                                # TODO check if unit will move
+                                if tuple(unit.pos + move_deltas[direction]) in unit_poses:
+                                    if unit.power >= unit.action_queue_cost(game_state):
+                                        actions[unit_id] = [
+                                            unit.transfer(
+                                                direction,
+                                                resource_id,
+                                                unit.cargo.from_id(resource_id),
+                                            )
+                                        ]
                             if game_state.board.rubble[unit.pos[0], unit.pos[1]] > 0:  # Rubble Mining!!
                                 pipe_full = game_state.units[self.player][factory.state.robot_missions[unit.state.mission][-1]].state.role.is_stationary
                                 max_digger_achieved = False
