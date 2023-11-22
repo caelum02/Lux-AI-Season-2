@@ -167,4 +167,4 @@ cython_debug/
 # Data
 data/
 
-*.html
+replay.html
