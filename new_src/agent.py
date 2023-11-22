@@ -285,9 +285,9 @@ class Agent:
                     )
                     self.factory_states[main_factory_id].plans = main_factory_plans
                     self.factory_states[main_factory_id].ban_list = [
-                        *f2f_plan.route.path,
-                        *f2i_plan.route.path,
-                        *f2o_plan.route.path,
+                        *main_factory_plans['ice'].route.path,
+                        *main_factory_plans['ore'].route.path,
+                        *sub_factory_plans['factory_to_factory'].route.path,
                     ]
                     self.factory_states[main_factory_id].empty_factory_locs = empty_factory_locs
                     es_state.latest_main_factory = None
@@ -322,8 +322,10 @@ class Agent:
         return factory_centers, factory_units, factory_ids
 
     def handle_robot_actions(
-        self, game_state, factory: Factory, unit: Unit, actions, factory_pickup_robots
+        self, game_state: GameState, factory: Factory, unit: Unit, actions, factory_pickup_robots
     ):
+        if unit.unit_id == "unit_145" and game_state.real_env_steps == 752:
+            breakpoint()
         if unit.state.mission == UnitMission.NONE:
             return actions
         unit_id = unit.unit_id
