@@ -1250,7 +1250,7 @@ class Agent:
             if not action_was_updated:
                 break
             action_was_updated, actions = stop_movement_collisions(
-                obs, game_state, self.env_cfg, self.player, actions, self.unit_states
+                obs, game_state, self.env_cfg, self.player, actions, self.unit_states, ban_list=self.global_ban_list
             )
         if actions is None:
             raise ValueError("Invalid actions")

@@ -213,7 +213,7 @@ def get_shortest_loop(rubble_map, start, end, ban_list=[], min_length=0):
 
 
 # direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
-def get_avoiding_direction(route, start):
+def get_avoiding_direction(route, start, ban_list):
     start = tuple(start)
     path = route.path
     if start in path:
@@ -226,6 +226,8 @@ def get_avoiding_direction(route, start):
         for shift, direction in SHIFT_DIRECTIONS.items():
             new_pos = (start[0] + shift[0], start[1] + shift[1])
             if new_pos == before or new_pos == next:
+                continue
+            if new_pos in ban_list:
                 continue
             if new_pos in path:
                 scores[direction] = 1
