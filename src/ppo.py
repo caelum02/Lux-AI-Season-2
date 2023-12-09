@@ -1,21 +1,26 @@
+"""Implement PPO algorithm for JuxEnvBatch
+"""
+from typing import NamedTuple
+
 import jax
 import jax.numpy as jnp
 from jax import Array, jit, tree_map
 import optax
-from typing import NamedTuple
 from flax.training.train_state import TrainState
-import distrax
 
 from jux.env import JuxEnv, JuxEnvBatch
 from jux.config import JuxBufferConfig, EnvConfig
 from jux.state import State
 from jux.actions import JuxAction
-from jux.unit_cargo import ResourceType
 
 from preprocess import get_feature
-from constants import *
-from space import ObsSpace, ActionSpace
-from utils import StateSkeleton, get_seeds
+from constants import MAX_EPISODE_LENGTH
+from space import ObsSpace
+from utils import get_seeds
+
+
+def calculate_gae()
+
 
 
 class PPOConfig(NamedTuple):
@@ -26,7 +31,7 @@ class PPOConfig(NamedTuple):
     N_UPDATES: int = 1000
     N_EPISODES_PER_ENV: int = 16
     UPDATE_EPOCHS: int = 4
-    NUM_MINIBATCHES: int = 32 
+    NUM_MINIBATCHES: int = 32
 
     GAMMA: float = 0.99
     GAE_LAMBDA: float = 0.96
@@ -52,6 +57,8 @@ class RunnerState(NamedTuple):
 class UpdateState(NamedTuple):
     train_state: TrainState
     rng: jax.Array
+
+
 
 def make_train(env_config: EnvConfig, buf_config: JuxBufferConfig, ppo_config: PPOConfig, 
                actor_critic, bid_agent, factory_placement_agent, rng):

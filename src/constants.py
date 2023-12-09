@@ -1,3 +1,6 @@
+"""
+Constants for default values of LUX AI S2 env config
+"""
 MAP_SIZE = 64
 LIGHT_BATTERY_CAPACITY = 150
 HEAVY_BATTERY_CAPACITY = 3000
