@@ -5,7 +5,7 @@
 groups = ["default", "dev"]
 strategy = ["cross_platform"]
 lock_version = "4.4"
-content_hash = "sha256:b71d72b5af7cf1c4e6d1ffcffe03a600611ec300cd7d36b76ed1dfee3e4ed391"
+content_hash = "sha256:49c1e2176e08a4459d55ece35f1d67f8b7d3d62561d445a9ab8720ebfac9346a"
 
 [[package]]
 name = "absl-py"
@@ -372,7 +372,7 @@ files = [
 
 [[package]]
 name = "distrax"
-version = "0.1.4"
+version = "0.1.5"
 requires_python = ">=3.9"
 summary = "Distrax: Probability distributions in JAX."
 dependencies = [
@@ -384,8 +384,8 @@ dependencies = [
     "tensorflow-probability>=0.15.0",
 ]
 files = [
-    {file = "distrax-0.1.4-py3-none-any.whl", hash = "sha256:20bca3ed4a2e6684c861e59f7f49e94d00939f1ce7de9ba445dd4195b449e762"},
-    {file = "distrax-0.1.4.tar.gz", hash = "sha256:9255d3e707e759418cadfe6c42162acfb16873f3aee72e0620582d4df7f56454"},
+    {file = "distrax-0.1.5-py3-none-any.whl", hash = "sha256:5020f4b53a9a480d019c12e44292fbacb7de857cce478bc594dacf29519c61b7"},
+    {file = "distrax-0.1.5.tar.gz", hash = "sha256:ec41522d389af69efedc8d475a7e6d8f229429c00f2140dcd641feacf7e21948"},
 ]
 
 [[package]]
@@ -701,38 +701,8 @@ files = [
 
 [[package]]
 name = "jax"
-version = "0.4.7"
+version = "0.4.7+cuda12.cudnn88"
 requires_python = ">=3.8"
-summary = "Differentiate, compile, and transform Numpy code."
-dependencies = [
-    "ml-dtypes>=0.0.3",
-    "numpy>=1.21",
-    "opt-einsum",
-    "scipy>=1.7",
-]
-files = [
-    {file = "jax-0.4.7.tar.gz", hash = "sha256:5e7002d74db25f97c99b979d4ba1233b1ef26e1597e5fc468ad11d1c8a9dc4f8"},
-]
-
-[[package]]
-name = "jax"
-version = "0.4.7"
-extras = ["cuda11_cudnn82"]
-requires_python = ">=3.8"
-summary = "Differentiate, compile, and transform Numpy code."
-dependencies = [
-    "jax==0.4.7",
-    "jaxlib==0.4.7+cuda11.cudnn82",
-]
-files = [
-    {file = "jax-0.4.7.tar.gz", hash = "sha256:5e7002d74db25f97c99b979d4ba1233b1ef26e1597e5fc468ad11d1c8a9dc4f8"},
-]
-
-[[package]]
-name = "jaxlib"
-version = "0.4.7+cuda11.cudnn82"
-requires_python = ">=3.8"
-url = "https://storage.googleapis.com/jax-releases/cuda11/jaxlib-0.4.7+cuda11.cudnn82-cp310-cp310-manylinux2014_x86_64.whl"
 summary = "XLA library for JAX"
 dependencies = [
     "ml-dtypes>=0.0.3",
@@ -740,7 +710,35 @@ dependencies = [
     "scipy>=1.7",
 ]
 files = [
-    {file = "jaxlib-0.4.7+cuda11.cudnn82-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:6b98519cb79738b9d1ac5e43cd5c302a0b7c3d3c06e0347dac9287fd0fd93c37"},
+    {file = "jaxlib-0.4.7+cuda12.cudnn88-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:000837003897ae7ed5df069007eba9e80a62b39a74745a613dec65f07ae70928"},
+]
+
+[[package]]
+name = "jax"
+version = "0.4.7+cuda12.cudnn88"
+extras = ["cuda11_cudnn82"]
+requires_python = ">=3.8"
+summary = "XLA library for JAX"
+dependencies = [
+    "jax==0.4.7",
+]
+files = [
+    {file = "jax-0.4.7.tar.gz", hash = "sha256:5e7002d74db25f97c99b979d4ba1233b1ef26e1597e5fc468ad11d1c8a9dc4f8"},
+]
+
+[[package]]
+name = "jaxlib"
+version = "0.4.7+cuda12.cudnn88"
+requires_python = ">=3.8"
+url = "https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.7+cuda12.cudnn88-cp310-cp310-manylinux2014_x86_64.whl"
+summary = "XLA library for JAX"
+dependencies = [
+    "ml-dtypes>=0.0.3",
+    "numpy>=1.21",
+    "scipy>=1.7",
+]
+files = [
+    {file = "jaxlib-0.4.7+cuda12.cudnn88-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:000837003897ae7ed5df069007eba9e80a62b39a74745a613dec65f07ae70928"},
 ]
 
 [[package]]
@@ -1561,19 +1559,6 @@ files = [
 ]
 
 [[package]]
-name = "opt-einsum"
-version = "3.3.0"
-requires_python = ">=3.5"
-summary = "Optimizing numpys einsum function"
-dependencies = [
-    "numpy>=1.7",
-]
-files = [
-    {file = "opt_einsum-3.3.0-py3-none-any.whl", hash = "sha256:2455e59e3947d3c275477df7f5205b30635e266fe6dc300e3d9f9646bfcea147"},
-    {file = "opt_einsum-3.3.0.tar.gz", hash = "sha256:59f6475f77bbc37dcf7cd748519c0ec60722e91e63ca114e68821c0c54a46549"},
-]
-
-[[package]]
 name = "optax"
 version = "0.1.7"
 requires_python = ">=3.8"
@@ -2040,7 +2025,7 @@ files = [
 
 [[package]]
 name = "rich"
-version = "13.6.0"
+version = "13.7.0"
 requires_python = ">=3.7.0"
 summary = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
 dependencies = [
@@ -2048,8 +2033,8 @@ dependencies = [
     "pygments<3.0.0,>=2.13.0",
 ]
 files = [
-    {file = "rich-13.6.0-py3-none-any.whl", hash = "sha256:2b38e2fe9ca72c9a00170a1a2d20c63c790d0e10ef1fe35eba76e1e7b1d7d245"},
-    {file = "rich-13.6.0.tar.gz", hash = "sha256:5c14d22737e6d5084ef4771b62d5d4363165b403455a30a1c8ca39dc7b644bef"},
+    {file = "rich-13.7.0-py3-none-any.whl", hash = "sha256:6da14c108c4866ee9520bbffa71f6fe3962e193b7da68720583850cd4548e235"},
+    {file = "rich-13.7.0.tar.gz", hash = "sha256:5cb5123b5cf9ee70584244246816e9114227e0b98ad9176eede6ad54bf5403fa"},
 ]
 
 [[package]]
@@ -2296,7 +2281,7 @@ files = [
 
 [[package]]
 name = "torch"
-version = "2.1.0"
+version = "2.1.1"
 requires_python = ">=3.8.0"
 summary = "Tensors and Dynamic neural networks in Python with strong GPU acceleration"
 dependencies = [
@@ -2320,45 +2305,45 @@ dependencies = [
     "typing-extensions",
 ]
 files = [
-    {file = "torch-2.1.0-cp310-cp310-manylinux1_x86_64.whl", hash = "sha256:bf57f8184b2c317ef81fb33dc233ce4d850cd98ef3f4a38be59c7c1572d175db"},
-    {file = "torch-2.1.0-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:a04a0296d47f28960f51c18c5489a8c3472f624ec3b5bcc8e2096314df8c3342"},
-    {file = "torch-2.1.0-cp310-cp310-win_amd64.whl", hash = "sha256:0bd691efea319b14ef239ede16d8a45c246916456fa3ed4f217d8af679433cc6"},
-    {file = "torch-2.1.0-cp310-none-macosx_10_9_x86_64.whl", hash = "sha256:101c139152959cb20ab370fc192672c50093747906ee4ceace44d8dd703f29af"},
-    {file = "torch-2.1.0-cp310-none-macosx_11_0_arm64.whl", hash = "sha256:a6b7438a90a870e4cdeb15301519ae6c043c883fcd224d303c5b118082814767"},
+    {file = "torch-2.1.1-cp310-cp310-manylinux1_x86_64.whl", hash = "sha256:5ebc43f5355a9b7be813392b3fb0133991f0380f6f0fcc8218d5468dc45d1071"},
+    {file = "torch-2.1.1-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:84fefd63356416c0cd20578637ccdbb82164993400ed17b57c951dd6376dcee8"},
+    {file = "torch-2.1.1-cp310-cp310-win_amd64.whl", hash = "sha256:0a7a9da0c324409bcb5a7bdad1b4e94e936d21c2590aaa7ac2f63968da8c62f7"},
+    {file = "torch-2.1.1-cp310-none-macosx_10_9_x86_64.whl", hash = "sha256:1e1e5faddd43a8f2c0e0e22beacd1e235a2e447794d807483c94a9e31b54a758"},
+    {file = "torch-2.1.1-cp310-none-macosx_11_0_arm64.whl", hash = "sha256:e76bf3c5c354874f1da465c852a2fb60ee6cbce306e935337885760f080f9baa"},
 ]
 
 [[package]]
 name = "torchaudio"
-version = "2.1.0"
+version = "2.1.1"
 summary = "An audio package for PyTorch"
 dependencies = [
-    "torch==2.1.0",
+    "torch==2.1.1",
 ]
 files = [
-    {file = "torchaudio-2.1.0-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:445eba044d70e292acab2a67763ee682af8c776d2d0ca671cdbe43ba396422a3"},
-    {file = "torchaudio-2.1.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:cd6f29c78358b632ff7123929e5358dbdf0505849811b57e7108cbd2af42bb44"},
-    {file = "torchaudio-2.1.0-cp310-cp310-manylinux1_x86_64.whl", hash = "sha256:1602cafb47dd04a61a9b0d77f79721979dacbc844de73174b84467992237c9b2"},
-    {file = "torchaudio-2.1.0-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:010f63fe766787e058989ffadd793daadd946ce1de903be171087938cdbdc1d7"},
-    {file = "torchaudio-2.1.0-cp310-cp310-win_amd64.whl", hash = "sha256:3629b358af5df25f9b018e3aba09a84c59c809712d7dfe9e31a4145d0092a1df"},
+    {file = "torchaudio-2.1.1-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:24fa5870f620994e4588452d54edcb2ffb5f509d7ee36ba04e8c68eb28affc8a"},
+    {file = "torchaudio-2.1.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:7cd465be06fd38736ada7d4c086f0cdd249de28b7575d1035ce25dfb3896fa4c"},
+    {file = "torchaudio-2.1.1-cp310-cp310-manylinux1_x86_64.whl", hash = "sha256:e73ee8e52304abff5e7ecdb9560e70b65f471ee5a528d2279af491ece875dd69"},
+    {file = "torchaudio-2.1.1-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:8b4a96c9ed5501d4d0c809372c35092c68190e9459006d66cc64b08491d840fe"},
+    {file = "torchaudio-2.1.1-cp310-cp310-win_amd64.whl", hash = "sha256:fd8330fe79ca6c0a5b9f8ef874562b52510858e0392c6e9961b050870d6aeb1a"},
 ]
 
 [[package]]
 name = "torchvision"
-version = "0.16.0"
+version = "0.16.1"
 requires_python = ">=3.8"
 summary = "image and video datasets and models for torch deep learning"
 dependencies = [
     "numpy",
     "pillow!=8.3.*,>=5.3.0",
     "requests",
-    "torch==2.1.0",
+    "torch==2.1.1",
 ]
 files = [
-    {file = "torchvision-0.16.0-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:16c300fdbbe91469f5e9feef8d24c6acabd8849db502a06160dd76ba68e897a0"},
-    {file = "torchvision-0.16.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:ef5dec6c48b715353781b83749efcdea03835720a71b377684453ee117aab3c7"},
-    {file = "torchvision-0.16.0-cp310-cp310-manylinux1_x86_64.whl", hash = "sha256:9e3a2012e463f498de21f6598cc7a266b9a8c6fe15788472fdc419233ea6f3f2"},
-    {file = "torchvision-0.16.0-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:e4327e082b703921ae52caeee4f7839f7e6c73cfc5eedea468ecb5c1487ecdbf"},
-    {file = "torchvision-0.16.0-cp310-cp310-win_amd64.whl", hash = "sha256:62f01513687cce3480df8928fcc6c09b4aa0433d05ac75e82877acc773f6a568"},
+    {file = "torchvision-0.16.1-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:987132795e5c037cb74e7be35a693999fdb2f603152266ee15b80206e83a5b0c"},
+    {file = "torchvision-0.16.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:25da6a7b22ea0348f62c45ec0daf157731096babcae65d222404081af96e085c"},
+    {file = "torchvision-0.16.1-cp310-cp310-manylinux1_x86_64.whl", hash = "sha256:c82e291e674a18b67f92ddb476ae18498fb46d7032ae914f3fda90c955e7d86f"},
+    {file = "torchvision-0.16.1-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:632887b22e67ce32a3ede806b868bba4057601e46d680de14b32a391eac1b483"},
+    {file = "torchvision-0.16.1-cp310-cp310-win_amd64.whl", hash = "sha256:92c76a5092b4033efdb183b11fa4854a7630e23c46f4a1c3ffd70c30cb5be4fc"},
 ]
 
 [[package]]
